@@ -1,6 +1,7 @@
 workflows:
   ios-release:
-    name: iOS Release
+    name: iOS Release (TestFlight)
+
     max_build_duration: 60
 
     environment:
@@ -8,15 +9,41 @@ workflows:
       xcode: latest
       cocoapods: default
 
+      vars:
+        BUNDLE_ID: "com.ismddch.halaqak"   # 🔥 غيرها حسب تطبيقك
+        APP_STORE_APPLE_ID: "D3782AW27J"  # 🔥 App ID من App Store Connect
+
     scripts:
-      - name: Install dependencies
+      - name: Clean project
         script: |
           flutter clean
+
+      - name: Get dependencies
+        script: |
           flutter pub get
 
-      - name: Build iOS
+      - name: Analyze (اختياري لكن مهم)
+        script: |
+          flutter analyze || true
+
+      - name: Run tests (اختياري)
+        script: |
+          flutter test || true
+
+      - name: Build iOS (بدون توقيع)
         script: |
           flutter build ios --release --no-codesign
+
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+
+      - name: Build IPA (التوقيع يتم هنا)
+        script: |
+          xcode-project build-ipa \
+            --workspace "ios/Runner.xcworkspace" \
+            --scheme "Runner"
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -26,3 +53,4 @@ workflows:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_ID
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
