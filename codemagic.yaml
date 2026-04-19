@@ -11,7 +11,7 @@ workflows:
 
       vars:
         BUNDLE_ID: "com.ismddch.halaqak"   # 🔥 غيرها حسب تطبيقك
-        APP_STORE_APPLE_ID: "D3782AW27J"  # 🔥 App ID من App Store Connect
+        APP_STORE_APPLE_ID: "6762566697"  # 🔥 App ID من App Store Connect
 
     scripts:
       - name: Clean project
