@@ -1,7 +1,7 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Build Flutter iOS and upload to TestFlight (no local Mac required)"
+  desc "Build Flutter iOS and upload to TestFlight using manual signing"
   lane :beta do
     api_key = app_store_connect_api_key(
       key_id:                ENV["APPSTORE_KEY_ID"],
@@ -12,22 +12,26 @@ platform :ios do
       in_house:              false
     )
 
-    # Automatic signing — Xcode downloads certs/profiles via API key
     update_code_signing_settings(
-      use_automatic_signing: true,
+      use_automatic_signing: false,
       path:                  "Runner.xcodeproj",
-      team_id:               ENV["TEAM_ID"]
+      team_id:               ENV["TEAM_ID"],
+      code_sign_identity:    "iPhone Distribution",
+      profile_name:          ENV["PROVISIONING_PROFILE_NAME"],
+      bundle_identifier:     ENV["APP_IDENTIFIER"]
     )
 
     build_app(
       workspace:     "Runner.xcworkspace",
       scheme:        "Runner",
       export_method: "app-store",
-      xcargs:        "-allowProvisioningUpdates",
       export_options: {
         method:       "app-store",
         teamID:       ENV["TEAM_ID"],
-        signingStyle: "automatic"
+        signingStyle: "manual",
+        provisioningProfiles: {
+          ENV["APP_IDENTIFIER"] => ENV["PROVISIONING_PROFILE_NAME"]
+        }
       },
       output_directory: "build",
       output_name:      "Hallaqak.ipa"
