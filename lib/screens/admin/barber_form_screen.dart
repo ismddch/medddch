@@ -54,68 +54,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
   }
 
   Future<void> _pickImage() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('اختر مصدر الصورة',
-                    style: GoogleFonts.cairo(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: Container(
-                    width: 44, height: 44,
-                    decoration: BoxDecoration(
-                      color: AppTheme.accent.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.photo_library_rounded,
-                        color: AppTheme.accent),
-                  ),
-                  title: Text('المعرض',
-                      style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-                  subtitle: Text('اختر صورة من معرض الصور',
-                      style: GoogleFonts.cairo(
-                          fontSize: 12, color: AppTheme.textMuted)),
-                  onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-                ),
-                ListTile(
-                  leading: Container(
-                    width: 44, height: 44,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.camera_alt_rounded,
-                        color: AppTheme.primary),
-                  ),
-                  title: Text('الكاميرا',
-                      style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-                  subtitle: Text('التقط صورة بالكاميرا',
-                      style: GoogleFonts.cairo(
-                          fontSize: 12, color: AppTheme.textMuted)),
-                  onTap: () => Navigator.pop(ctx, ImageSource.camera),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    if (source == null) return;
-
     final picked = await _picker.pickImage(
-      source: source,
+      source: ImageSource.gallery,
       maxWidth: 800,
       maxHeight: 800,
       imageQuality: 80,

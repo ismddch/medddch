@@ -712,44 +712,8 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
   }
 
   Future<void> _pickImage() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.photo_library_rounded,
-                      color: AppTheme.accent),
-                  title: Text('المعرض',
-                      style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.camera_alt_rounded,
-                      color: AppTheme.primary),
-                  title: Text('الكاميرا',
-                      style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(ctx, ImageSource.camera),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    if (source == null) return;
-
     final picked = await _picker.pickImage(
-      source: source,
+      source: ImageSource.gallery,
       maxWidth: 600,
       maxHeight: 600,
       imageQuality: 80,
