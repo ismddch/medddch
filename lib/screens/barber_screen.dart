@@ -330,6 +330,38 @@ class _BarberScreenState extends State<BarberScreen> {
     );
   }
 
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('حذف الحساب', style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+        content: Text(
+          'هل أنت متأكد أنك تريد حذف حسابك نهائياً؟ لا يمكن التراجع عن هذا الإجراء.',
+          style: GoogleFonts.cairo(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('إلغاء', style: GoogleFonts.cairo()),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('حذف', style: GoogleFonts.cairo(color: Colors.red, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final success = await context.read<AuthProvider>().deleteCurrentUserAccount();
+    if (success && mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   // ─── Build ───────────────────────────────────────────────
 
   @override
@@ -378,10 +410,30 @@ class _BarberScreenState extends State<BarberScreen> {
             onPressed: _toggleShop,
             tooltip: _shopClosed ? 'فتح المحل' : 'إغلاق المحل',
           ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: _logout,
-            tooltip: 'تسجيل الخروج',
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (value) {
+              if (value == 'logout') _logout();
+              if (value == 'delete') _confirmDeleteAccount();
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'logout',
+                child: Row(children: [
+                  const Icon(Icons.logout_rounded, size: 20),
+                  const SizedBox(width: 10),
+                  Text('تسجيل الخروج', style: GoogleFonts.cairo(fontSize: 14)),
+                ]),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(children: [
+                  const Icon(Icons.delete_forever_rounded, size: 20, color: Colors.red),
+                  const SizedBox(width: 10),
+                  Text('حذف الحساب', style: GoogleFonts.cairo(fontSize: 14, color: Colors.red)),
+                ]),
+              ),
+            ],
           ),
         ],
       ),
