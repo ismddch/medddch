@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_provider.dart';
 import '../utils/theme.dart';
 import 'register_screen.dart';
@@ -65,6 +66,13 @@ class _LoginScreenState extends State<LoginScreen>
         context,
         MaterialPageRoute(builder: (_) => destination),
       );
+    }
+  }
+
+  Future<void> _openWhatsApp() async {
+    final uri = Uri.parse('https://wa.me/22222460486');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -232,6 +240,32 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+
+                    // ─── WhatsApp Support Button ─────────
+                    OutlinedButton.icon(
+                      onPressed: _openWhatsApp,
+                      icon: const Icon(
+                        Icons.support_agent_rounded,
+                        color: Color(0xFF25D366),
+                      ),
+                      label: Text(
+                        'تواصل مع الدعم عبر واتساب',
+                        style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF25D366),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF25D366)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),

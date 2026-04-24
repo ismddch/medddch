@@ -79,4 +79,23 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
+
+  Future<bool> deleteCurrentUserAccount() async {
+    if (_user == null) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      await _service.deleteUser(_user!.id);
+      _user = null;
+      _error = null;
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = 'فشل حذف الحساب: ${e.toString()}';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
 }

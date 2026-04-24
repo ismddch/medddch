@@ -47,6 +47,10 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>whatsapp</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>يحتاج التطبيق إلى الوصول إلى معرض الصور لاختيار صورة الحلاق.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
