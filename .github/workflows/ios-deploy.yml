@@ -9,7 +9,7 @@ jobs:
   deploy-ios:
     name: Build & Upload to TestFlight
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -25,8 +25,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
-          working-directory: ios
 
       - name: Install Flutter dependencies
         run: flutter pub get
@@ -35,8 +33,12 @@ jobs:
         run: pod install --repo-update
         working-directory: ios
 
-      - name: Build Flutter iOS (generates Xcode project files)
+      - name: Build Flutter iOS (no code sign)
         run: flutter build ios --release --no-codesign
+
+      - name: Install Bundler gems
+        run: bundle install
+        working-directory: ios
 
       - name: Install Distribution Certificate
         env:
@@ -49,8 +51,10 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
-          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm certificate.p12
 
       - name: Install Provisioning Profile
@@ -59,17 +63,18 @@ jobs:
         run: |
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > profile.mobileprovision
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          cp profile.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/
           rm profile.mobileprovision
 
       - name: Deploy via Fastlane
         working-directory: ios
         env:
-          APPSTORE_KEY_ID:              ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID:           ${{ secrets.APPSTORE_ISSUER_ID }}
-          APPSTORE_PRIVATE_KEY:         ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          APP_IDENTIFIER:               ${{ secrets.APP_IDENTIFIER }}
-          APPLE_ID_EMAIL:               ${{ secrets.APPLE_ID_EMAIL }}
-          TEAM_ID:                      ${{ secrets.TEAM_ID }}
-          PROVISIONING_PROFILE_NAME:    ${{ secrets.PROVISIONING_PROFILE_NAME }}
+          APPSTORE_KEY_ID:           ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID:        ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY:      ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
+          APPLE_ID_EMAIL:            ${{ secrets.APPLE_ID_EMAIL }}
+          TEAM_ID:                   ${{ secrets.TEAM_ID }}
+          PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
         run: bundle exec fastlane beta

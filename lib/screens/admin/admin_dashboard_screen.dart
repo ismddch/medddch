@@ -6,6 +6,7 @@ import '../../services/auth_provider.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/theme.dart';
 import '../login_screen.dart';
+import '../products_screen.dart';
 import 'barber_form_screen.dart';
 import 'barber_detail_screen.dart';
 
@@ -94,6 +95,78 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _loadData();
   }
 
+  Future<void> _openProductsPicker() async {
+    if (_barbers.isEmpty) return;
+    if (_barbers.length == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProductsScreen(barberId: _barbers.first.id),
+        ),
+      );
+      return;
+    }
+    final picked = await showModalBottomSheet<BarberModel>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text('اختر الصالون',
+                  style: GoogleFonts.cairo(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              ..._barbers.map((b) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: AppTheme.accent.withOpacity(0.1),
+                      backgroundImage: b.imageUrl != null
+                          ? NetworkImage(b.imageUrl!)
+                          : null,
+                      child: b.imageUrl == null
+                          ? const Icon(Icons.content_cut_rounded,
+                              color: AppTheme.accent, size: 20)
+                          : null,
+                    ),
+                    title: Text(b.name,
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.w600)),
+                    subtitle: Text('الرمز: ${b.code}',
+                        style: GoogleFonts.cairo(
+                            fontSize: 12, color: AppTheme.textMuted)),
+                    onTap: () => Navigator.pop(ctx, b),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProductsScreen(barberId: picked.id),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,6 +174,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         title: const Text('لوحة تحكم المدير'),
         automaticallyImplyLeading: false,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.shopping_bag_outlined),
+            onPressed: _openProductsPicker,
+            tooltip: 'إدارة المنتجات',
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             onPressed: _logout,

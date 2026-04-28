@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/auth_provider.dart';
 import 'screens/login_screen.dart';
+import 'screens/main_screen.dart';
+import 'screens/barber_screen.dart';
+import 'screens/admin/admin_dashboard_screen.dart';
 import 'utils/constants.dart';
 import 'utils/theme.dart';
 
@@ -14,28 +17,38 @@ void main() async {
     anonKey: 'sb_publishable_gXo6m12b4EGEGeEIS4UaMA_F4G_F9T_',
   );
 
-  runApp(const BarbershopQueueApp());
+  final authProvider = AuthProvider();
+  await authProvider.loadSession();
+
+  runApp(BarbershopQueueApp(authProvider: authProvider));
 }
 
 class BarbershopQueueApp extends StatelessWidget {
-  const BarbershopQueueApp({super.key});
+  final AuthProvider authProvider;
+  const BarbershopQueueApp({super.key, required this.authProvider});
+
+  Widget _home() {
+    if (!authProvider.isLoggedIn) return const LoginScreen();
+    if (authProvider.isAdmin) return const AdminDashboardScreen();
+    if (authProvider.isBarber) return const BarberScreen();
+    return const MainScreen();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthProvider(),
+    return ChangeNotifierProvider.value(
+      value: authProvider,
       child: MaterialApp(
         title: AppConstants.appName,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.theme,
-        // Force RTL for Arabic
         builder: (context, child) {
           return Directionality(
             textDirection: TextDirection.rtl,
             child: child!,
           );
         },
-        home: const LoginScreen(),
+        home: _home(),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/supabase_service.dart';
 
@@ -15,6 +16,23 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoggedIn => _user != null;
   bool get isBarber => _user?.isBarber ?? false;
   bool get isAdmin => _user?.isAdmin ?? false;
+
+  Future<void> loadSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('saved_user_id');
+    if (userId == null) return;
+    try {
+      final user = await _service.getUserById(userId);
+      if (user != null) {
+        _user = user;
+        notifyListeners();
+      } else {
+        await prefs.remove('saved_user_id');
+      }
+    } catch (_) {
+      await prefs.remove('saved_user_id');
+    }
+  }
 
   void clearError() {
     _error = null;
@@ -37,6 +55,8 @@ class AuthProvider extends ChangeNotifier {
       _user = user;
       _isLoading = false;
       notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_user_id', user.id);
       return true;
     } catch (e) {
       _error = 'خطأ في تسجيل الدخول: ${e.toString()}';
@@ -65,6 +85,8 @@ class AuthProvider extends ChangeNotifier {
       );
       _isLoading = false;
       notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_user_id', _user!.id);
       return true;
     } catch (e) {
       _error = e.toString().replaceAll('Exception: ', '');
@@ -74,7 +96,17 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> updateProfile({String? name, String? imageUrl}) async {
+    if (_user == null) return;
+    await _service.updateUser(
+        userId: _user!.id, name: name, imageUrl: imageUrl);
+    _user = _user!.copyWith(name: name, imageUrl: imageUrl);
+    notifyListeners();
+  }
+
   void logout() {
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.remove('saved_user_id'));
     _user = null;
     _error = null;
     notifyListeners();
@@ -86,6 +118,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _service.deleteUser(_user!.id);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('saved_user_id');
       _user = null;
       _error = null;
       _isLoading = false;

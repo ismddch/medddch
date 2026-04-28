@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_provider.dart';
 import '../utils/theme.dart';
-import 'chairs_screen.dart';
+import 'main_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -43,7 +43,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (success && mounted) {
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const ChairsScreen()),
+        MaterialPageRoute(builder: (_) => const MainScreen()),
         (route) => false,
       );
     }
@@ -149,8 +149,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       prefixIcon:
                           Icon(Icons.phone_outlined, color: AppTheme.accent),
                     ),
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'أدخل رقم الهاتف' : null,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'أدخل رقم الهاتف';
+                      final digits = v.trim().replaceAll(RegExp(r'\D'), '');
+                      if (digits.length < 8) return 'رقم الهاتف يجب أن يكون 8 أرقام على الأقل';
+                      if (!RegExp(r'^[234]').hasMatch(digits)) return 'يجب أن يبدأ الرقم بـ 2 أو 3 أو 4';
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 14),
 

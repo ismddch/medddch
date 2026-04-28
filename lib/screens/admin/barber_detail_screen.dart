@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../models/models.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/theme.dart';
+import '../products_screen.dart';
 import 'barber_form_screen.dart';
 
 class BarberDetailScreen extends StatefulWidget {
@@ -510,6 +511,35 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppTheme.primary,
                           side: const BorderSide(color: AppTheme.accent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ProductsScreen(
+                                barberId: widget.barber.id),
+                          ),
+                        ),
+                        icon: const Icon(Icons.shopping_bag_outlined,
+                            size: 20, color: Colors.white),
+                        label: Text('إدارة منتجات الصالون',
+                            style: GoogleFonts.cairo(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.accent,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),

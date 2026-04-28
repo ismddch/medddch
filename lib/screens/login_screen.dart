@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_provider.dart';
 import '../utils/theme.dart';
 import 'register_screen.dart';
-import 'chairs_screen.dart';
+import 'main_screen.dart';
 import 'barber_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 
@@ -60,7 +60,7 @@ class _LoginScreenState extends State<LoginScreen>
       } else if (auth.isBarber) {
         destination = const BarberScreen();
       } else {
-        destination = const ChairsScreen();
+        destination = const MainScreen();
       }
       Navigator.pushReplacement(
         context,

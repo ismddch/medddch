@@ -48,6 +48,7 @@ class UserModel {
   final String phone;
   final String role;
   final String? barberId;
+  final String? imageUrl;
 
   UserModel({
     required this.id,
@@ -55,6 +56,7 @@ class UserModel {
     required this.phone,
     required this.role,
     this.barberId,
+    this.imageUrl,
   });
 
   bool get isBarber => role == 'barber';
@@ -67,8 +69,18 @@ class UserModel {
       phone: map['phone'],
       role: map['role'] ?? 'customer',
       barberId: map['barber_id'],
+      imageUrl: map['image_url'],
     );
   }
+
+  UserModel copyWith({String? name, String? imageUrl}) => UserModel(
+        id: id,
+        name: name ?? this.name,
+        phone: phone,
+        role: role,
+        barberId: barberId,
+        imageUrl: imageUrl ?? this.imageUrl,
+      );
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -76,7 +88,41 @@ class UserModel {
         'phone': phone,
         'role': role,
         'barber_id': barberId,
+        'image_url': imageUrl,
       };
+}
+
+// ─── Product Model ─────────────────────────────────────────
+class ProductModel {
+  final String id;
+  final String barberId;
+  final String name;
+  final String? description;
+  final double? price;
+  final String? imageUrl;
+  final DateTime createdAt;
+
+  ProductModel({
+    required this.id,
+    required this.barberId,
+    required this.name,
+    this.description,
+    this.price,
+    this.imageUrl,
+    required this.createdAt,
+  });
+
+  factory ProductModel.fromMap(Map<String, dynamic> map) {
+    return ProductModel(
+      id: map['id'],
+      barberId: map['barber_id'],
+      name: map['name'],
+      description: map['description'],
+      price: map['price'] != null ? (map['price'] as num).toDouble() : null,
+      imageUrl: map['image_url'],
+      createdAt: DateTime.parse(map['created_at']),
+    );
+  }
 }
 
 // ─── Chair Model ───────────────────────────────────────────

@@ -31,6 +31,30 @@ class SupabaseService {
 
   // ─── AUTH ─────────────────────────────────────────────────
 
+  /// Get a user by ID (used for session restoration).
+  Future<UserModel?> getUserById(String userId) async {
+    final res = await _client
+        .from('users')
+        .select()
+        .eq('id', userId)
+        .maybeSingle();
+    if (res == null) return null;
+    return UserModel.fromMap(res);
+  }
+
+  /// Update user profile fields.
+  Future<void> updateUser({
+    required String userId,
+    String? name,
+    String? imageUrl,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (imageUrl != null) updates['image_url'] = imageUrl;
+    if (updates.isEmpty) return;
+    await _client.from('users').update(updates).eq('id', userId);
+  }
+
   /// Login with phone + password (custom table auth).
   Future<UserModel?> login(String phone, String password) async {
     final res = await _client
@@ -654,6 +678,37 @@ class SupabaseService {
   /// Delete a user.
   Future<void> deleteUser(String userId) async {
     await _client.from('users').delete().eq('id', userId);
+  }
+
+  // ─── PRODUCTS ─────────────────────────────────────────────
+
+  Future<List<ProductModel>> getProducts(String barberId) async {
+    final res = await _client
+        .from('products')
+        .select()
+        .eq('barber_id', barberId)
+        .order('created_at', ascending: false);
+    return (res as List).map((r) => ProductModel.fromMap(r)).toList();
+  }
+
+  Future<void> addProduct({
+    required String barberId,
+    required String name,
+    String? description,
+    double? price,
+    String? imageUrl,
+  }) async {
+    await _client.from('products').insert({
+      'barber_id': barberId,
+      'name': name,
+      'description': description,
+      'price': price,
+      'image_url': imageUrl,
+    });
+  }
+
+  Future<void> deleteProduct(String productId) async {
+    await _client.from('products').delete().eq('id', productId);
   }
 
   // ─── ADMIN: STATISTICS ────────────────────────────────────
