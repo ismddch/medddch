@@ -85,13 +85,18 @@ jobs:
 
           rm /tmp/profile.mobileprovision /tmp/profile.plist
 
-      # ── 9. Fastlane: archive + sign + upload to TestFlight ───────────────────
+      # ── 9. Write .p8 key to a temp file (avoids null-byte errors from env vars) ─
+      - name: Write App Store Connect API key
+        env:
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
+
+      # ── 10. Fastlane: archive + sign + upload to TestFlight ──────────────────
       - name: Deploy via Fastlane
         working-directory: ios
         env:
           APPSTORE_KEY_ID:           ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_ISSUER_ID:        ${{ secrets.APPSTORE_ISSUER_ID }}
-          APPSTORE_PRIVATE_KEY:      ${{ secrets.APPSTORE_PRIVATE_KEY }}
           APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
           APPLE_ID_EMAIL:            ${{ secrets.APPLE_ID_EMAIL }}
           TEAM_ID:                   ${{ secrets.TEAM_ID }}

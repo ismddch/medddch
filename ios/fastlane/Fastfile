@@ -5,15 +5,14 @@ platform :ios do
   lane :beta do
 
     # ── App Store Connect API key ───────────────────────────────────────────
-    # APPSTORE_PRIVATE_KEY secret must be the base64-encoded content of the
-    # .p8 key file downloaded from App Store Connect.
+    # The workflow writes the raw .p8 secret to /tmp/AuthKey.p8 before this
+    # lane runs, so we reference it by path — no base64 ambiguity.
     api_key = app_store_connect_api_key(
-      key_id:                ENV["APPSTORE_KEY_ID"],
-      issuer_id:             ENV["APPSTORE_ISSUER_ID"],
-      key_content:           ENV["APPSTORE_PRIVATE_KEY"],
-      is_key_content_base64: true,
-      duration:              1200,
-      in_house:              false
+      key_id:       ENV["APPSTORE_KEY_ID"],
+      issuer_id:    ENV["APPSTORE_ISSUER_ID"],
+      key_filepath: "/tmp/AuthKey.p8",
+      duration:     1200,
+      in_house:     false
     )
 
     # ── Switch project to manual signing ───────────────────────────────────
