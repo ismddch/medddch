@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 
@@ -28,6 +29,8 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   bool _inQueue = false;
   bool _inOtherQueue = false;
   int? _myPosition;
+  int? _prevPosition;
+  bool _initialLoadDone = false;
   RealtimeChannel? _subscription;
 
   @override
@@ -57,6 +60,18 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
       }
 
       if (mounted) {
+        // Notify customer when they reach position 2 or 1 (skip on first load).
+        if (_initialLoadDone && pos != null) {
+          final prev = _prevPosition;
+          if (pos == 1 && (prev == null || prev > 1)) {
+            NotificationService.notifyCustomerPosition(1);
+          } else if (pos == 2 && (prev == null || prev > 2)) {
+            NotificationService.notifyCustomerPosition(2);
+          }
+        }
+        _prevPosition = pos;
+        _initialLoadDone = true;
+
         setState(() {
           _queue = queue;
           _myPosition = pos;

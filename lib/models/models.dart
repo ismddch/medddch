@@ -73,13 +73,19 @@ class UserModel {
     );
   }
 
-  UserModel copyWith({String? name, String? imageUrl}) => UserModel(
+  UserModel copyWith({
+    String? name,
+    String? imageUrl,
+    String? barberId,
+    bool clearImage = false,
+  }) =>
+      UserModel(
         id: id,
         name: name ?? this.name,
         phone: phone,
         role: role,
-        barberId: barberId,
-        imageUrl: imageUrl ?? this.imageUrl,
+        barberId: barberId ?? this.barberId,
+        imageUrl: clearImage ? null : (imageUrl ?? this.imageUrl),
       );
 
   Map<String, dynamic> toMap() => {
@@ -151,6 +157,33 @@ class ChairModel {
       imageUrl: map['image_url'],
       isClosed: map['is_closed'] ?? false,
       queueLength: map['queue_length'] ?? 0,
+    );
+  }
+}
+
+// ─── Barber Code History Model ────────────────────────────
+class BarberCodeHistoryModel {
+  final String id;
+  final String barberId;
+  final String barberName;
+  final String barberCode;
+  final DateTime changedAt;
+
+  BarberCodeHistoryModel({
+    required this.id,
+    required this.barberId,
+    required this.barberName,
+    required this.barberCode,
+    required this.changedAt,
+  });
+
+  factory BarberCodeHistoryModel.fromMap(Map<String, dynamic> map) {
+    return BarberCodeHistoryModel(
+      id: map['id'],
+      barberId: map['barber_id'],
+      barberName: map['barber_name'],
+      barberCode: map['barber_code'],
+      changedAt: DateTime.parse(map['changed_at']),
     );
   }
 }

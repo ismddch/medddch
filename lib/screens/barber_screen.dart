@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +6,7 @@ import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
+import 'chair_dashboard_screen.dart';
 import 'login_screen.dart';
 
 class BarberScreen extends StatefulWidget {
@@ -20,11 +20,8 @@ class _BarberScreenState extends State<BarberScreen> {
   final SupabaseService _service = SupabaseService();
   List<ChairModel> _chairs = [];
   Map<String, List<QueueEntryModel>> _queuesByChair = {};
-  String? _selectedChairId;
   BarberModel? _barber;
   bool _loading = true;
-  bool _autoRemoveEnabled = false;
-  Timer? _autoRemoveTimer;
   RealtimeChannel? _subscription;
 
   @override
@@ -37,23 +34,19 @@ class _BarberScreenState extends State<BarberScreen> {
   @override
   void dispose() {
     if (_subscription != null) _service.unsubscribe(_subscription!);
-    _autoRemoveTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _loadData() async {
     final user = context.read<AuthProvider>().user;
     if (user == null || user.barberId == null) return;
-
     try {
       final chairs = await _service.getChairs(user.barberId!);
       final barber = await _service.getBarberById(user.barberId!);
       final Map<String, List<QueueEntryModel>> queues = {};
-
       for (final chair in chairs) {
         queues[chair.id] = await _service.getQueueForChair(chair.id);
       }
-
       if (mounted) {
         setState(() {
           _chairs = chairs;
@@ -62,177 +55,44 @@ class _BarberScreenState extends State<BarberScreen> {
           _loading = false;
         });
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  // ─── Actions ─────────────────────────────────────────────
+  Future<void> _selectChair(ChairModel chair) async {
+    if (_barber == null) return;
 
-  Future<void> _nextCustomer() async {
-    if (_selectedChairId == null) return;
-    await _service.removeFirstInQueue(_selectedChairId!);
-    await _loadData();
-  }
-
-  Future<void> _removeCustomer(QueueEntryModel entry) async {
-    await _service.removeFromQueue(entry.id, entry.chairId);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تم حذف ${entry.userName ?? 'العميل'}',
-              style: GoogleFonts.cairo()),
-          backgroundColor: AppTheme.danger,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          action: SnackBarAction(
-            label: 'تراجع',
-            textColor: Colors.white,
-            onPressed: _undoDelete,
-          ),
-        ),
+    if (chair.isClosed) {
+      final confirmed = await _showConfirm(
+        'فتح الكرسي',
+        'الكرسي "${chair.name}" مغلق، هل تريد فتحه والعمل عليه؟',
       );
-    }
-  }
-
-  Future<void> _undoDelete() async {
-    final user = context.read<AuthProvider>().user;
-    if (user == null || user.barberId == null) return;
-
-    final success = await _service.undoLastDelete(user.barberId!);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? 'تم استعادة العميل بنجاح' : 'لا يمكن التراجع',
-            style: GoogleFonts.cairo(),
-          ),
-          backgroundColor: success ? AppTheme.success : AppTheme.textMuted,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-  }
-
-  Future<void> _clearQueue() async {
-    if (_selectedChairId == null) return;
-    final confirmed = await _showConfirm(
-      'مسح الطابور',
-      'هل أنت متأكد من مسح جميع العملاء في الطابور؟',
-    );
-    if (confirmed) {
-      await _service.clearQueue(_selectedChairId!);
-    }
-  }
-
-  Future<void> _toggleChairClosed(ChairModel chair) async {
-    await _service.toggleChairClosed(chair.id, !chair.isClosed);
-    _loadData();
-  }
-
-  Future<void> _addCustomerToQueue() async {
-    if (_selectedChairId == null) return;
-
-    final selectedChair = _chairs.firstWhere((c) => c.id == _selectedChairId);
-    if (selectedChair.isClosed) {
-      _showMessage('الكرسي مغلق حالياً', isError: true);
-      return;
+      if (!confirmed || !mounted) return;
+      await _service.toggleChairClosed(chair.id, false);
+      await _loadData();
+      if (!mounted) return;
+      // Re-fetch updated chair
+      final updated = _chairs.cast<ChairModel?>().firstWhere(
+            (c) => c!.id == chair.id,
+            orElse: () => null,
+          );
+      if (updated == null) return;
+      chair = updated;
     }
 
-    final phone = await _showInputDialog(
-      title: 'إضافة عميل مسجل',
-      hint: 'رقم هاتف العميل',
-      icon: Icons.person_add_alt_1_rounded,
-      keyboardType: TextInputType.phone,
-      isLtr: true,
-    );
-
-    if (phone != null && phone.trim().isNotEmpty) {
-      try {
-        await _service.addCustomerToQueue(_selectedChairId!, phone.trim());
-        _showMessage('تم إضافة العميل بنجاح');
-      } catch (e) {
-        _showMessage(
-          e.toString().replaceAll('Exception: ', ''),
-          isError: true,
-        );
-      }
-    }
-  }
-
-  Future<void> _addGuestToQueue() async {
-    if (_selectedChairId == null) return;
-    final user = context.read<AuthProvider>().user;
-    if (user == null || user.barberId == null) return;
-
-    final selectedChair = _chairs.firstWhere((c) => c.id == _selectedChairId);
-    if (selectedChair.isClosed) {
-      _showMessage('الكرسي مغلق حالياً', isError: true);
-      return;
-    }
-
-    final result = await showDialog<Map<String, String>>(
-      context: context,
-      builder: (ctx) => const _GuestFormDialog(),
-    );
-
-    if (result != null) {
-      try {
-        await _service.addGuestToQueue(
-          chairId: _selectedChairId!,
-          name: result['name']!,
-          phone: result['phone']!,
-          barberId: user.barberId!,
-        );
-        _showMessage('تم إضافة الزائر بنجاح');
-      } catch (e) {
-        _showMessage(
-          e.toString().replaceAll('Exception: ', ''),
-          isError: true,
-        );
-      }
-    }
-  }
-
-  void _toggleAutoRemove() {
-    setState(() {
-      _autoRemoveEnabled = !_autoRemoveEnabled;
-    });
-
-    if (_autoRemoveEnabled) {
-      _autoRemoveTimer = Timer.periodic(
-        const Duration(hours: 1),
-        (_) => _autoRemoveFirstInQueue(),
-      );
-      _showMessage('تفعيل الحذف التلقائي — كل ساعة');
-    } else {
-      _autoRemoveTimer?.cancel();
-      _autoRemoveTimer = null;
-      _showMessage('تم إيقاف الحذف التلقائي');
-    }
-  }
-
-  Future<void> _autoRemoveFirstInQueue() async {
-    if (_selectedChairId == null) return;
-    final removed = await _service.autoRemoveFirst(_selectedChairId!);
-    if (removed && mounted) {
-      _showMessage('تم حذف أول عميل تلقائياً');
-    }
-  }
-
-  // ─── Helpers ─────────────────────────────────────────────
-
-  void _showMessage(String text, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text, style: GoogleFonts.cairo()),
-        backgroundColor: isError ? AppTheme.danger : AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChairDashboardScreen(
+          chair: chair,
+          barber: _barber!,
+        ),
       ),
     );
+    // Refresh queue counts when returning
+    _loadData();
   }
 
   Future<bool> _showConfirm(String title, String message) async {
@@ -241,7 +101,8 @@ class _BarberScreenState extends State<BarberScreen> {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text(title,
               style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
           content: Text(message, style: GoogleFonts.cairo()),
@@ -252,55 +113,15 @@ class _BarberScreenState extends State<BarberScreen> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-              child: Text('نعم', style: GoogleFonts.cairo()),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.accent),
+              child: Text('فتح وعمل', style: GoogleFonts.cairo()),
             ),
           ],
         ),
       ),
     );
     return result ?? false;
-  }
-
-  Future<String?> _showInputDialog({
-    required String title,
-    required String hint,
-    required IconData icon,
-    TextInputType? keyboardType,
-    bool isLtr = false,
-  }) async {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(title,
-              style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            keyboardType: keyboardType,
-            textDirection: isLtr ? TextDirection.ltr : TextDirection.rtl,
-            decoration: InputDecoration(
-              hintText: hint,
-              prefixIcon: Icon(icon, color: AppTheme.accent),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text('إلغاء', style: GoogleFonts.cairo()),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: Text('إضافة', style: GoogleFonts.cairo()),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _logout() {
@@ -316,7 +137,8 @@ class _BarberScreenState extends State<BarberScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('حذف الحساب', style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+        title: Text('حذف الحساب',
+            style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
         content: Text(
           'هل أنت متأكد أنك تريد حذف حسابك نهائياً؟ لا يمكن التراجع عن هذا الإجراء.',
           style: GoogleFonts.cairo(fontSize: 14),
@@ -328,13 +150,16 @@ class _BarberScreenState extends State<BarberScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('حذف', style: GoogleFonts.cairo(color: Colors.red, fontWeight: FontWeight.w700)),
+            child: Text('حذف',
+                style: GoogleFonts.cairo(
+                    color: Colors.red, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
-    final success = await context.read<AuthProvider>().deleteCurrentUserAccount();
+    final success =
+        await context.read<AuthProvider>().deleteCurrentUserAccount();
     if (success && mounted) {
       Navigator.pushAndRemoveUntil(
         context,
@@ -344,252 +169,20 @@ class _BarberScreenState extends State<BarberScreen> {
     }
   }
 
-  // ─── Chair Picker ─────────────────────────────────────────
-
-  Widget _buildChairPicker() {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
-          decoration: const BoxDecoration(
-            color: AppTheme.primary,
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(28),
-              bottomRight: Radius.circular(28),
-            ),
-          ),
-          child: Column(
-            children: [
-              if (_barber != null) ...[
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.accent, width: 3),
-                    image: _barber!.imageUrl != null
-                        ? DecorationImage(
-                            image: NetworkImage(_barber!.imageUrl!),
-                            fit: BoxFit.cover)
-                        : null,
-                    color: AppTheme.accent.withOpacity(0.2),
-                  ),
-                  child: _barber!.imageUrl == null
-                      ? const Icon(Icons.content_cut_rounded,
-                          color: AppTheme.accent, size: 32)
-                      : null,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _barber!.name,
-                  style: GoogleFonts.cairo(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 6),
-              ],
-              Text(
-                'اختر الكرسي الذي ستعمل عليه',
-                style: GoogleFonts.cairo(
-                  fontSize: 14,
-                  color: Colors.white70,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _chairs.isEmpty
-              ? Center(
-                  child: Text(
-                    'لا توجد كراسي — تواصل مع المدير',
-                    style: GoogleFonts.cairo(
-                        color: AppTheme.textMuted, fontSize: 15),
-                  ),
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(20),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 16,
-                    childAspectRatio: 1.1,
-                  ),
-                  itemCount: _chairs.length,
-                  itemBuilder: (_, i) {
-                    final chair = _chairs[i];
-                    final count =
-                        _queuesByChair[chair.id]?.length ?? 0;
-                    return GestureDetector(
-                      onTap: () async {
-                        if (!chair.isClosed) {
-                          setState(() => _selectedChairId = chair.id);
-                        } else {
-                          final confirmed = await _showConfirm(
-                            'فتح الكرسي',
-                            'الكرسي "${chair.name}" مغلق، هل تريد فتحه والعمل عليه؟',
-                          );
-                          if (confirmed && mounted) {
-                            await _service.toggleChairClosed(chair.id, false);
-                            await _loadData();
-                            if (mounted) {
-                              setState(() => _selectedChairId = chair.id);
-                            }
-                          }
-                        }
-                      },
-                      child: Opacity(
-                        opacity: chair.isClosed ? 0.7 : 1.0,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppTheme.divider),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    AppTheme.primary.withOpacity(0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                width: 56,
-                                height: 56,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: chair.isClosed
-                                      ? AppTheme.textMuted
-                                          .withOpacity(0.1)
-                                      : AppTheme.accent.withOpacity(0.1),
-                                  image: chair.imageUrl != null
-                                      ? DecorationImage(
-                                          image:
-                                              NetworkImage(chair.imageUrl!),
-                                          fit: BoxFit.cover)
-                                      : null,
-                                ),
-                                child: chair.imageUrl == null
-                                    ? Icon(
-                                        chair.isClosed
-                                            ? Icons.lock_rounded
-                                            : Icons.chair_rounded,
-                                        color: chair.isClosed
-                                            ? AppTheme.textMuted
-                                            : AppTheme.accent,
-                                        size: 28,
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                chair.name,
-                                style: GoogleFonts.cairo(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: chair.isClosed
-                                      ? AppTheme.textMuted
-                                      : AppTheme.primary,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                chair.isClosed
-                                    ? 'مغلق'
-                                    : '$count في الانتظار',
-                                style: GoogleFonts.cairo(
-                                  fontSize: 11,
-                                  color: chair.isClosed
-                                      ? AppTheme.danger
-                                      : AppTheme.textMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  // ─── Build ───────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
-    final currentQueue = _queuesByChair[_selectedChairId] ?? [];
-    final totalInQueue = _queuesByChair.values
-        .fold<int>(0, (sum, list) => sum + list.length);
-    final selectedChair = _selectedChairId != null
-        ? _chairs.cast<ChairModel?>().firstWhere(
-            (c) => c!.id == _selectedChairId,
-            orElse: () => null)
-        : null;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_selectedChairId == null
-            ? 'اختر كرسيك'
-            : 'لوحة تحكم الحلاق'),
+        title: Text('اختر كرسيك', style: GoogleFonts.cairo()),
         automaticallyImplyLeading: false,
         actions: [
-          if (_selectedChairId != null)
-            IconButton(
-              icon: const Icon(Icons.swap_horiz_rounded),
-              onPressed: () => setState(() => _selectedChairId = null),
-              tooltip: 'تغيير الكرسي',
-            ),
-          // Auto-remove toggle
-          if (_selectedChairId != null)
-          IconButton(
-            icon: Icon(
-              _autoRemoveEnabled
-                  ? Icons.timer_rounded
-                  : Icons.timer_off_outlined,
-              color: _autoRemoveEnabled ? AppTheme.accent : null,
-            ),
-            onPressed: _toggleAutoRemove,
-            tooltip: _autoRemoveEnabled
-                ? 'إيقاف الحذف التلقائي'
-                : 'تفعيل الحذف التلقائي (كل ساعة)',
-          ),
-          // Undo button
-          if (_selectedChairId != null)
-          IconButton(
-            icon: const Icon(Icons.undo_rounded),
-            onPressed: _undoDelete,
-            tooltip: 'تراجع عن الحذف',
-          ),
-          // Lock/unlock selected chair only
-          if (selectedChair != null)
-            IconButton(
-              icon: Icon(
-                selectedChair.isClosed
-                    ? Icons.lock_rounded
-                    : Icons.lock_open_rounded,
-                color: selectedChair.isClosed ? AppTheme.danger : null,
-              ),
-              onPressed: () => _toggleChairClosed(selectedChair),
-              tooltip: selectedChair.isClosed ? 'فتح كرسيي' : 'إغلاق كرسيي',
-            ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (value) {
-              if (value == 'logout') _logout();
-              if (value == 'delete') _confirmDeleteAccount();
+            onSelected: (v) {
+              if (v == 'logout') _logout();
+              if (v == 'delete') _confirmDeleteAccount();
             },
             itemBuilder: (_) => [
               PopupMenuItem(
@@ -597,59 +190,38 @@ class _BarberScreenState extends State<BarberScreen> {
                 child: Row(children: [
                   const Icon(Icons.logout_rounded, size: 20),
                   const SizedBox(width: 10),
-                  Text('تسجيل الخروج', style: GoogleFonts.cairo(fontSize: 14)),
+                  Text('تسجيل الخروج',
+                      style: GoogleFonts.cairo(fontSize: 14)),
                 ]),
               ),
               PopupMenuItem(
                 value: 'delete',
                 child: Row(children: [
-                  const Icon(Icons.delete_forever_rounded, size: 20, color: Colors.red),
+                  const Icon(Icons.delete_forever_rounded,
+                      size: 20, color: Colors.red),
                   const SizedBox(width: 10),
-                  Text('حذف الحساب', style: GoogleFonts.cairo(fontSize: 14, color: Colors.red)),
+                  Text('حذف الحساب',
+                      style: GoogleFonts.cairo(
+                          fontSize: 14, color: Colors.red)),
                 ]),
               ),
             ],
           ),
         ],
       ),
-      // ─── FABs: Add Customer / Add Guest ─────
-      floatingActionButton: _selectedChairId == null ? null : Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.small(
-            heroTag: 'guest',
-            onPressed: _addGuestToQueue,
-            backgroundColor: AppTheme.primary,
-            tooltip: 'إضافة زائر بدون حساب',
-            child: const Icon(Icons.person_outline_rounded,
-                color: Colors.white, size: 22),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton(
-            heroTag: 'registered',
-            onPressed: _addCustomerToQueue,
-            backgroundColor: AppTheme.accent,
-            tooltip: 'إضافة عميل مسجل',
-            child: const Icon(Icons.person_add_alt_1_rounded,
-                color: Colors.white),
-          ),
-        ],
-      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _selectedChairId == null
-              ? _buildChairPicker()
-              : Column(
+          : Column(
               children: [
-                // ─── Dashboard Header ───────────────
+                // ─── Header ──────────────────────────────────
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
                   decoration: const BoxDecoration(
                     color: AppTheme.primary,
                     borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(24),
-                      bottomRight: Radius.circular(24),
+                      bottomLeft: Radius.circular(28),
+                      bottomRight: Radius.circular(28),
                     ),
                   ),
                   child: Column(
@@ -664,11 +236,11 @@ class _BarberScreenState extends State<BarberScreen> {
                                 color: AppTheme.accent, width: 3),
                             image: _barber!.imageUrl != null
                                 ? DecorationImage(
-                                    image: NetworkImage(_barber!.imageUrl!),
-                                    fit: BoxFit.cover,
-                                  )
+                                    image:
+                                        NetworkImage(_barber!.imageUrl!),
+                                    fit: BoxFit.cover)
                                 : null,
-                            color: AppTheme.accent.withOpacity(0.2),
+                            color: AppTheme.accent.withValues(alpha: 0.2),
                           ),
                           child: _barber!.imageUrl == null
                               ? const Icon(Icons.content_cut_rounded,
@@ -679,469 +251,142 @@ class _BarberScreenState extends State<BarberScreen> {
                         Text(
                           _barber!.name,
                           style: GoogleFonts.cairo(
-                            fontSize: 18,
+                            fontSize: 20,
                             fontWeight: FontWeight.w800,
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                       ],
                       Text(
-                        'مرحباً ${user?.name ?? ''}',
+                        'مرحباً ${user?.name ?? ''} — اختر الكرسي الذي ستعمل عليه',
                         style: GoogleFonts.cairo(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                           color: Colors.white70,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 12),
-                      // ─── Shop Status + Total ─────
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.people_rounded,
-                                    color: AppTheme.accent, size: 18),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'العملاء: $totalInQueue',
-                                  style: GoogleFonts.cairo(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.accent,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: (selectedChair?.isClosed ?? false)
-                                  ? AppTheme.danger.withOpacity(0.2)
-                                  : AppTheme.success.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  (selectedChair?.isClosed ?? false)
-                                      ? Icons.lock_rounded
-                                      : Icons.check_circle_rounded,
-                                  color: (selectedChair?.isClosed ?? false)
-                                      ? AppTheme.danger
-                                      : AppTheme.success,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  (selectedChair?.isClosed ?? false)
-                                      ? 'مغلق'
-                                      : 'مفتوح',
-                                  style: GoogleFonts.cairo(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: (selectedChair?.isClosed ?? false)
-                                        ? AppTheme.danger
-                                        : AppTheme.success,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      // ─── Auto-remove indicator ─────
-                      if (_autoRemoveEnabled) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppTheme.accent.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.timer_rounded,
-                                  color: AppTheme.accent, size: 16),
-                              const SizedBox(width: 6),
-                              Text(
-                                'الحذف التلقائي مفعل — كل ساعة',
-                                style: GoogleFonts.cairo(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.accent,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
 
-                // ─── Chair Tabs ─────────────────────
-                if (_chairs.isNotEmpty)
-                  Container(
-                    height: 70,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _chairs.length,
-                      itemBuilder: (context, index) {
-                        final chair = _chairs[index];
-                        final isSelected = chair.id == _selectedChairId;
-                        final count = _queuesByChair[chair.id]?.length ?? 0;
-
-                        return GestureDetector(
-                          onTap: () =>
-                              setState(() => _selectedChairId = chair.id),
-                          onLongPress: isSelected
-                              ? () => _toggleChairClosed(chair)
-                              : null,
-                          child: Container(
-                            margin: const EdgeInsets.only(left: 10),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: chair.isClosed
-                                  ? AppTheme.textMuted.withOpacity(0.15)
-                                  : isSelected
-                                      ? AppTheme.accent
-                                      : Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: chair.isClosed
-                                    ? AppTheme.textMuted.withOpacity(0.3)
-                                    : isSelected
-                                        ? AppTheme.accent
-                                        : AppTheme.divider,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                // Chair thumbnail
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(9),
-                                    image: chair.imageUrl != null
-                                        ? DecorationImage(
-                                            image: NetworkImage(chair.imageUrl!),
-                                            fit: BoxFit.cover,
-                                            colorFilter: chair.isClosed
-                                                ? const ColorFilter.mode(
-                                                    Colors.grey,
-                                                    BlendMode.saturation)
-                                                : null,
-                                          )
-                                        : null,
-                                    color: isSelected
-                                        ? Colors.white.withOpacity(0.2)
-                                        : AppTheme.primary.withOpacity(0.06),
-                                  ),
-                                  child: chair.imageUrl == null
-                                      ? Icon(
-                                          chair.isClosed
-                                              ? Icons.lock_rounded
-                                              : Icons.chair_rounded,
-                                          size: 16,
-                                          color: chair.isClosed
-                                              ? AppTheme.textMuted
-                                              : isSelected
-                                                  ? Colors.white
-                                                  : AppTheme.accent,
-                                        )
-                                      : null,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  chair.name,
-                                  style: GoogleFonts.cairo(
-                                    fontWeight: FontWeight.w700,
-                                    color: chair.isClosed
-                                        ? AppTheme.textMuted
-                                        : isSelected
-                                            ? Colors.white
-                                            : AppTheme.primary,
-                                    fontSize: 13,
-                                    decoration: chair.isClosed
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (chair.isClosed)
-                                  Icon(Icons.lock_rounded,
-                                      size: 14, color: AppTheme.textMuted)
-                                else
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? Colors.white.withOpacity(0.2)
-                                          : AppTheme.primary.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '$count',
-                                      style: GoogleFonts.cairo(
-                                        fontWeight: FontWeight.w800,
-                                        color: isSelected
-                                            ? Colors.white
-                                            : AppTheme.primary,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                // ─── Chair Closed Banner ────────────
-                if (selectedChair != null && selectedChair.isClosed)
-                  Container(
-                    width: double.infinity,
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.danger.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: AppTheme.danger.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.lock_rounded,
-                            color: AppTheme.danger, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'هذا الكرسي مغلق حالياً',
-                            style: GoogleFonts.cairo(
-                              color: AppTheme.danger,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => _toggleChairClosed(selectedChair),
-                          child: Text('فتح',
-                              style: GoogleFonts.cairo(
-                                color: AppTheme.success,
-                                fontWeight: FontWeight.w700,
-                              )),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // ─── Action Buttons ─────────────────
-                if (_selectedChairId != null &&
-                    currentQueue.isNotEmpty &&
-                    (selectedChair == null || !selectedChair.isClosed))
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _nextCustomer,
-                            icon: const Icon(Icons.skip_next_rounded,
-                                size: 20),
-                            label: Text('العميل التالي',
-                                style: GoogleFonts.cairo(
-                                    fontWeight: FontWeight.w700)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.success,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          onPressed: _undoDelete,
-                          icon: const Icon(Icons.undo_rounded),
-                          tooltip: 'تراجع',
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppTheme.primary.withOpacity(0.08),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          onPressed: _clearQueue,
-                          icon: const Icon(Icons.delete_sweep_rounded,
-                              color: AppTheme.danger),
-                          tooltip: 'مسح الكل',
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppTheme.danger.withOpacity(0.08),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                // ─── Queue List ─────────────────────
+                // ─── Chair Grid ───────────────────────────────
                 Expanded(
-                  child: currentQueue.isEmpty
+                  child: _chairs.isEmpty
                       ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.inbox_rounded,
-                                  size: 64,
-                                  color: AppTheme.textMuted.withOpacity(0.3)),
-                              const SizedBox(height: 12),
-                              Text(
-                                'لا يوجد عملاء في الطابور',
-                                style: GoogleFonts.cairo(
-                                  fontSize: 16,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                              if (selectedChair != null &&
-                                  !selectedChair.isClosed) ...[
-                                const SizedBox(height: 16),
-                                OutlinedButton.icon(
-                                  onPressed: _addCustomerToQueue,
-                                  icon: const Icon(
-                                      Icons.person_add_alt_1_rounded,
-                                      size: 18),
-                                  label: Text('إضافة عميل',
-                                      style: GoogleFonts.cairo(
-                                          fontWeight: FontWeight.w600)),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppTheme.accent,
-                                    side:
-                                        const BorderSide(color: AppTheme.accent),
-                                  ),
-                                ),
-                              ],
-                            ],
+                          child: Text(
+                            'لا توجد كراسي — تواصل مع المدير',
+                            style: GoogleFonts.cairo(
+                                color: AppTheme.textMuted, fontSize: 15),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
-                          itemCount: currentQueue.length,
-                          itemBuilder: (context, index) {
-                            final entry = currentQueue[index];
-                            return Dismissible(
-                              key: Key(entry.id),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerLeft,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 24),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.danger,
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: const Icon(Icons.delete_rounded,
-                                    color: Colors.white),
-                              ),
-                              onDismissed: (_) => _removeCustomer(entry),
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border:
-                                      Border.all(color: AppTheme.divider),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(
-                                        color: index == 0
-                                            ? AppTheme.accent
-                                            : AppTheme.primary
-                                                .withOpacity(0.08),
-                                        borderRadius:
-                                            BorderRadius.circular(13),
+                      : GridView.builder(
+                          padding: const EdgeInsets.all(20),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 16,
+                            crossAxisSpacing: 16,
+                            childAspectRatio: 1.05,
+                          ),
+                          itemCount: _chairs.length,
+                          itemBuilder: (_, i) {
+                            final chair = _chairs[i];
+                            final count =
+                                _queuesByChair[chair.id]?.length ?? 0;
+                            return GestureDetector(
+                              onTap: () => _selectChair(chair),
+                              child: Opacity(
+                                opacity: chair.isClosed ? 0.7 : 1.0,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius:
+                                        BorderRadius.circular(20),
+                                    border: Border.all(
+                                        color: AppTheme.divider),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppTheme.primary
+                                            .withValues(alpha: 0.05),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
                                       ),
-                                      child: Center(
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 60,
+                                        height: 60,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: chair.isClosed
+                                              ? AppTheme.textMuted
+                                                  .withValues(alpha: 0.1)
+                                              : AppTheme.accent
+                                                  .withValues(alpha: 0.1),
+                                          image: chair.imageUrl != null
+                                              ? DecorationImage(
+                                                  image: NetworkImage(
+                                                      chair.imageUrl!),
+                                                  fit: BoxFit.cover)
+                                              : null,
+                                        ),
+                                        child: chair.imageUrl == null
+                                            ? Icon(
+                                                chair.isClosed
+                                                    ? Icons.lock_rounded
+                                                    : Icons.chair_rounded,
+                                                color: chair.isClosed
+                                                    ? AppTheme.textMuted
+                                                    : AppTheme.accent,
+                                                size: 30,
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        chair.name,
+                                        style: GoogleFonts.cairo(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                          color: chair.isClosed
+                                              ? AppTheme.textMuted
+                                              : AppTheme.primary,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: chair.isClosed
+                                              ? AppTheme.danger
+                                                  .withValues(alpha: 0.08)
+                                              : AppTheme.success
+                                                  .withValues(alpha: 0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
                                         child: Text(
-                                          '${entry.position}',
+                                          chair.isClosed
+                                              ? 'مغلق'
+                                              : '$count في الانتظار',
                                           style: GoogleFonts.cairo(
-                                            fontWeight: FontWeight.w800,
-                                            color: index == 0
-                                                ? Colors.white
-                                                : AppTheme.primary,
-                                            fontSize: 18,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: chair.isClosed
+                                                ? AppTheme.danger
+                                                : AppTheme.success,
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            entry.userName ?? 'عميل',
-                                            style: GoogleFonts.cairo(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppTheme.primary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            entry.userPhone ?? '',
-                                            style: GoogleFonts.cairo(
-                                              fontSize: 13,
-                                              color: AppTheme.textMuted,
-                                            ),
-                                            textDirection: TextDirection.ltr,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close_rounded,
-                                          color: AppTheme.danger, size: 22),
-                                      onPressed: () =>
-                                          _removeCustomer(entry),
-                                      tooltip: 'حذف',
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             );
@@ -1150,124 +395,6 @@ class _BarberScreenState extends State<BarberScreen> {
                 ),
               ],
             ),
-    );
-  }
-}
-
-// ─── Guest Form Dialog ────────────────────────────────────────
-class _GuestFormDialog extends StatefulWidget {
-  const _GuestFormDialog();
-
-  @override
-  State<_GuestFormDialog> createState() => _GuestFormDialogState();
-}
-
-class _GuestFormDialogState extends State<_GuestFormDialog> {
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.person_outline_rounded,
-                  color: AppTheme.accent, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'إضافة زائر بدون حساب',
-                style: GoogleFonts.cairo(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'أدخل اسم ورقم هاتف الزائر لإضافته للطابور',
-                  style: GoogleFonts.cairo(
-                    fontSize: 12,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameCtrl,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'اسم الزائر',
-                    prefixIcon: const Icon(Icons.person_outline,
-                        color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'أدخل الاسم' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
-                    hintText: 'رقم الهاتف',
-                    prefixIcon: const Icon(Icons.phone_outlined,
-                        color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'أدخل رقم الهاتف' : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('إلغاء', style: GoogleFonts.cairo()),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (_formKey.currentState!.validate()) {
-                Navigator.pop(context, {
-                  'name': _nameCtrl.text.trim(),
-                  'phone': _phoneCtrl.text.trim(),
-                });
-              }
-            },
-            child: Text('إضافة للطابور', style: GoogleFonts.cairo()),
-          ),
-        ],
-      ),
     );
   }
 }

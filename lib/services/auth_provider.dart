@@ -104,6 +104,21 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<BarberModel> changeBarberCode(String newCode) async {
+    if (_user == null) throw Exception('المستخدم غير مسجل الدخول');
+    final barber = await _service.changeBarberCode(_user!.id, newCode);
+    _user = _user!.copyWith(barberId: barber.id);
+    notifyListeners();
+    return barber;
+  }
+
+  Future<void> removeProfileImage() async {
+    if (_user == null) return;
+    await _service.removeProfileImage(_user!.id);
+    _user = _user!.copyWith(clearImage: true);
+    notifyListeners();
+  }
+
   void logout() {
     SharedPreferences.getInstance()
         .then((prefs) => prefs.remove('saved_user_id'));

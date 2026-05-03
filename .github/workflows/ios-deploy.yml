@@ -1,8 +1,8 @@
-name: iOS Deploy to TestFlight
+name: iOS Deploy to App Store
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -12,35 +12,42 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      # ── 1. Source ────────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── 2. Flutter ───────────────────────────────────────────────────────────
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Setup Ruby
+      # ── 3. Ruby + Gems (includes bundle install for ios/Gemfile) ─────────────
+      #    bundler-cache: true automatically runs `bundle install` and caches gems.
+      #    working-directory points to the Gemfile that installs fastlane + cocoapods.
+      - name: Setup Ruby & install gems
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: ios
 
+      # ── 4. Dart packages ─────────────────────────────────────────────────────
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      # ── 5. CocoaPods (must run AFTER flutter pub get generates symlinks) ──────
       - name: Install CocoaPods dependencies
-        run: pod install --repo-update
         working-directory: ios
+        run: bundle exec pod install --repo-update
 
-      - name: Build Flutter iOS (no code sign)
+      # ── 6. Flutter build (no codesign — Fastlane signs the archive) ──────────
+      - name: Build Flutter iOS release
         run: flutter build ios --release --no-codesign
 
-      - name: Install Bundler gems
-        run: bundle install
-        working-directory: ios
-
-      - name: Install Distribution Certificate
+      # ── 7. Keychain + distribution certificate ───────────────────────────────
+      - name: Create keychain and import distribution certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
@@ -50,23 +57,35 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
+
           echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
-          security import certificate.p12 -k build.keychain \
-            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
           security set-key-partition-list \
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm certificate.p12
 
-      - name: Install Provisioning Profile
+      # ── 8. Provisioning profile (stored by UUID so Xcode finds it) ───────────
+      - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
         run: |
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > profile.mobileprovision
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp profile.mobileprovision \
-            ~/Library/MobileDevice/Provisioning\ Profiles/
-          rm profile.mobileprovision
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > /tmp/profile.mobileprovision
 
+          # Extract UUID from the signed plist embedded in the profile.
+          security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /tmp/profile.plist)
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp /tmp/profile.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/${UUID}.mobileprovision
+
+          rm /tmp/profile.mobileprovision /tmp/profile.plist
+
+      # ── 9. Fastlane: archive + sign + upload to TestFlight ───────────────────
       - name: Deploy via Fastlane
         working-directory: ios
         env:

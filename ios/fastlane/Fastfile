@@ -1,17 +1,22 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Build Flutter iOS and upload to TestFlight using manual signing"
+  desc "Archive, sign and upload to TestFlight using manual codesigning"
   lane :beta do
+
+    # ── App Store Connect API key ───────────────────────────────────────────
+    # APPSTORE_PRIVATE_KEY secret must be the base64-encoded content of the
+    # .p8 key file downloaded from App Store Connect.
     api_key = app_store_connect_api_key(
       key_id:                ENV["APPSTORE_KEY_ID"],
       issuer_id:             ENV["APPSTORE_ISSUER_ID"],
       key_content:           ENV["APPSTORE_PRIVATE_KEY"],
-      is_key_content_base64: false,
+      is_key_content_base64: true,
       duration:              1200,
       in_house:              false
     )
 
+    # ── Switch project to manual signing ───────────────────────────────────
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "Runner.xcodeproj",
@@ -21,10 +26,13 @@ platform :ios do
       bundle_identifier:     ENV["APP_IDENTIFIER"]
     )
 
+    # ── Build and archive ───────────────────────────────────────────────────
     build_app(
-      workspace:     "Runner.xcworkspace",
-      scheme:        "Runner",
-      export_method: "app-store",
+      workspace:        "Runner.xcworkspace",
+      scheme:           "Runner",
+      configuration:    "Release",
+      clean:            true,
+      export_method:    "app-store",
       export_options: {
         method:       "app-store",
         teamID:       ENV["TEAM_ID"],
@@ -37,6 +45,7 @@ platform :ios do
       output_name:      "Hallaqak.ipa"
     )
 
+    # ── Upload to TestFlight ────────────────────────────────────────────────
     upload_to_testflight(
       api_key:                           api_key,
       skip_waiting_for_build_processing: true,

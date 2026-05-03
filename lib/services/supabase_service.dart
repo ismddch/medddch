@@ -18,15 +18,26 @@ class SupabaseService {
     String folder = 'uploads',
   }) async {
     final fileName = '$folder/${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+    final mime = _mimeFromExt(fileExt);
 
     await _client.storage.from(bucket).uploadBinary(
       fileName,
       bytes,
-      fileOptions: const FileOptions(upsert: true, contentType: 'image/*'),
+      fileOptions: FileOptions(upsert: true, contentType: mime),
     );
 
-    final publicUrl = _client.storage.from(bucket).getPublicUrl(fileName);
-    return publicUrl;
+    return _client.storage.from(bucket).getPublicUrl(fileName);
+  }
+
+  String _mimeFromExt(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'png':  return 'image/png';
+      case 'webp': return 'image/webp';
+      case 'gif':  return 'image/gif';
+      case 'heic': return 'image/heic';
+      case 'heif': return 'image/heif';
+      default:     return 'image/jpeg';
+    }
   }
 
   // ─── AUTH ─────────────────────────────────────────────────
@@ -53,6 +64,13 @@ class SupabaseService {
     if (imageUrl != null) updates['image_url'] = imageUrl;
     if (updates.isEmpty) return;
     await _client.from('users').update(updates).eq('id', userId);
+  }
+
+  /// Remove the profile image (set image_url to null).
+  Future<void> removeProfileImage(String userId) async {
+    await _client
+        .from('users')
+        .update({'image_url': null}).eq('id', userId);
   }
 
   /// Login with phone + password (custom table auth).
@@ -113,6 +131,47 @@ class SupabaseService {
         .single();
 
     return UserModel.fromMap(res);
+  }
+
+  // ─── BARBER CODE CHANGE ───────────────────────────────────
+
+  /// Change a customer's linked barber using a new barber code. Records history.
+  Future<BarberModel> changeBarberCode(String userId, String code) async {
+    final barberRes = await _client
+        .from('barbers')
+        .select()
+        .eq('code', code.trim().toUpperCase())
+        .maybeSingle();
+
+    if (barberRes == null) throw Exception('رمز الحلاق غير صحيح');
+    final barber = BarberModel.fromMap(barberRes);
+
+    await _client
+        .from('users')
+        .update({'barber_id': barber.id})
+        .eq('id', userId);
+
+    await _client.from('barber_code_history').insert({
+      'user_id': userId,
+      'barber_id': barber.id,
+      'barber_name': barber.name,
+      'barber_code': barber.code,
+    });
+
+    return barber;
+  }
+
+  /// Fetch the barber code change history for a customer, newest first.
+  Future<List<BarberCodeHistoryModel>> getBarberCodeHistory(
+      String userId) async {
+    final res = await _client
+        .from('barber_code_history')
+        .select()
+        .eq('user_id', userId)
+        .order('changed_at', ascending: false);
+    return (res as List)
+        .map((r) => BarberCodeHistoryModel.fromMap(r))
+        .toList();
   }
 
   // ─── CHAIRS ───────────────────────────────────────────────
@@ -307,21 +366,29 @@ class SupabaseService {
     final alreadyIn = await isUserInQueue(lastDeleted['user_id']);
     if (alreadyIn) return false;
 
-    // Get next position for the chair
-    final posRes = await _client
-        .from('queues')
-        .select('position')
-        .eq('chair_id', lastDeleted['chair_id'])
-        .order('position', ascending: false)
-        .limit(1)
-        .maybeSingle();
-    final nextPos = posRes != null ? (posRes['position'] as int) + 1 : 1;
+    final originalPos = lastDeleted['position'] as int;
+    final chairId = lastDeleted['chair_id'] as String;
 
-    // Re-insert the entry
+    // Shift all entries at or after the original position down by one
+    final toShift = await _client
+        .from('queues')
+        .select('id, position')
+        .eq('chair_id', chairId)
+        .gte('position', originalPos)
+        .order('position', ascending: false);
+
+    for (final row in (toShift as List)) {
+      await _client
+          .from('queues')
+          .update({'position': (row['position'] as int) + 1})
+          .eq('id', row['id'] as String);
+    }
+
+    // Re-insert at original position
     await _client.from('queues').insert({
-      'chair_id': lastDeleted['chair_id'],
+      'chair_id': chairId,
       'user_id': lastDeleted['user_id'],
-      'position': nextPos,
+      'position': originalPos,
     });
 
     // Remove from undo history
