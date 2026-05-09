@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
-import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 
@@ -33,8 +32,6 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
   Timer? _autoRemoveTimer;
   RealtimeChannel? _subscription;
   int _currentIndex = 0;
-  int _prevQueueLength = -1;
-  bool _initialLoadDone = false;
 
   // Chair profile tab state
   final _nameCtrl = TextEditingController();
@@ -86,6 +83,8 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
             name: _chair.name,
             imageUrl: url,
             isClosed: _chair.isClosed,
+            isVipLocked: _chair.isVipLocked,
+            isNormalLocked: _chair.isNormalLocked,
             queueLength: _chair.queueLength,
           ));
       _showMessage('تم تحديث صورة الكرسي');
@@ -109,6 +108,8 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
             name: name,
             imageUrl: _chair.imageUrl,
             isClosed: _chair.isClosed,
+            isVipLocked: _chair.isVipLocked,
+            isNormalLocked: _chair.isNormalLocked,
             queueLength: _chair.queueLength,
           ));
       _showMessage('تم حفظ بيانات الكرسي');
@@ -122,20 +123,13 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
   Future<void> _loadQueue() async {
     try {
       final queue = await _service.getQueueForChair(_chair.id);
-      // Refresh chair state (e.g. isClosed may have changed)
+      // Refresh chair state (e.g. isClosed / lock states may have changed)
       final chairs = await _service.getChairs(widget.barber.id);
       final updated = chairs.cast<ChairModel?>().firstWhere(
             (c) => c!.id == _chair.id,
             orElse: () => null,
           );
       if (mounted) {
-        // Notify barber when a new customer joins (skip on first load).
-        if (_initialLoadDone && queue.length > _prevQueueLength) {
-          NotificationService.notifyBarberNewCustomer(_chair.name);
-        }
-        _prevQueueLength = queue.length;
-        _initialLoadDone = true;
-
         setState(() {
           _queue = queue;
           if (updated != null) _chair = updated;
@@ -149,8 +143,23 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
 
   // ─── Queue Actions ────────────────────────────────────────
 
-  Future<void> _nextCustomer() async {
-    await _service.removeFirstInQueue(_chair.id);
+  Future<void> _nextVip() async {
+    await _service.removeFirstInQueue(_chair.id, 'vip');
+    await _loadQueue();
+  }
+
+  Future<void> _nextNormal() async {
+    await _service.removeFirstInQueue(_chair.id, 'normal');
+    await _loadQueue();
+  }
+
+  Future<void> _toggleVipLocked() async {
+    await _service.toggleVipLocked(_chair.id, !_chair.isVipLocked);
+    await _loadQueue();
+  }
+
+  Future<void> _toggleNormalLocked() async {
+    await _service.toggleNormalLocked(_chair.id, !_chair.isNormalLocked);
     await _loadQueue();
   }
 
@@ -175,8 +184,7 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
   }
 
   Future<void> _undoDelete() async {
-    final success =
-        await _service.undoLastDelete(widget.barber.id);
+    final success = await _service.undoLastDelete(widget.barber.id);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -199,7 +207,10 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
       'مسح الطابور',
       'هل أنت متأكد من مسح جميع العملاء في الطابور؟',
     );
-    if (confirmed) await _service.clearQueue(_chair.id);
+    if (confirmed) {
+      await _service.clearQueue(_chair.id);
+      await _loadQueue();
+    }
   }
 
   Future<void> _toggleChairClosed() async {
@@ -212,6 +223,47 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
       _showMessage('الكرسي مغلق حالياً', isError: true);
       return;
     }
+
+    String selectedType = 'normal';
+
+    // Only ask for queue type when VIP is enabled for this barber
+    if (widget.barber.vipEnabled) {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            title: Text('نوع الطابور',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+            content: Text('اختر نوع الطابور للعميل المسجل',
+                style: GoogleFonts.cairo()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('إلغاء', style: GoogleFonts.cairo()),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(ctx, 'normal'),
+                icon: const Icon(Icons.people_rounded),
+                label: Text('عادي', style: GoogleFonts.cairo()),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(ctx, 'vip'),
+                icon: const Icon(Icons.star_rounded, color: Colors.white),
+                label: Text('VIP', style: GoogleFonts.cairo()),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFB300)),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null) return;
+      selectedType = picked;
+    }
+
     final phone = await _showInputDialog(
       title: 'إضافة عميل مسجل',
       hint: 'رقم هاتف العميل',
@@ -221,8 +273,10 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
     );
     if (phone != null && phone.trim().isNotEmpty) {
       try {
-        await _service.addCustomerToQueue(_chair.id, phone.trim());
+        await _service.addCustomerToQueue(_chair.id, phone.trim(),
+            queueType: selectedType);
         _showMessage('تم إضافة العميل بنجاح');
+        await _loadQueue();
       } catch (e) {
         _showMessage(e.toString().replaceAll('Exception: ', ''),
             isError: true);
@@ -237,17 +291,23 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
     }
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => const _GuestFormDialog(),
+      builder: (ctx) =>
+          _GuestFormDialog(vipEnabled: widget.barber.vipEnabled),
     );
     if (result != null) {
       try {
+        final queueType = widget.barber.vipEnabled
+            ? (result['type'] ?? 'normal')
+            : 'normal';
         await _service.addGuestToQueue(
           chairId: _chair.id,
           name: result['name']!,
           phone: result['phone']!,
           barberId: widget.barber.id,
+          queueType: queueType,
         );
         _showMessage('تم إضافة الزائر بنجاح');
+        await _loadQueue();
       } catch (e) {
         _showMessage(e.toString().replaceAll('Exception: ', ''),
             isError: true);
@@ -363,6 +423,10 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
 
   Widget _buildQueueTab() {
     final user = context.watch<AuthProvider>().user;
+    final vipEnabled = widget.barber.vipEnabled;
+    final vipEntries = _queue.where((e) => e.queueType == 'vip').toList();
+    final normalEntries = _queue.where((e) => e.queueType == 'normal').toList();
+
     return Column(
       children: [
         // ─── Header ────────────────────────────────
@@ -392,7 +456,7 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                               image: NetworkImage(widget.barber.imageUrl!),
                               fit: BoxFit.cover)
                           : null,
-                      color: AppTheme.accent.withValues(alpha:0.2),
+                      color: AppTheme.accent.withValues(alpha: 0.2),
                     ),
                     child: widget.barber.imageUrl == null
                         ? const Icon(Icons.content_cut_rounded,
@@ -427,7 +491,7 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha:0.1),
+                      color: Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
@@ -450,42 +514,36 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              // Status row
+              // Status row: queue counts | open/closed
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha:0.1),
-                      borderRadius: BorderRadius.circular(12),
+                  if (vipEnabled) ...[
+                    _HeaderBadge(
+                      icon: Icons.star_rounded,
+                      label: 'VIP: ${vipEntries.length}',
+                      color: const Color(0xFFFFB300),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.people_rounded,
-                            color: AppTheme.accent, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          'في الانتظار: ${_queue.length}',
-                          style: GoogleFonts.cairo(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.accent,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(width: 8),
+                    _HeaderBadge(
+                      icon: Icons.people_rounded,
+                      label: 'عادي: ${normalEntries.length}',
+                      color: AppTheme.accent,
                     ),
-                  ),
-                  const SizedBox(width: 10),
+                  ] else
+                    _HeaderBadge(
+                      icon: Icons.people_rounded,
+                      label: 'الطابور: ${_queue.length}',
+                      color: AppTheme.accent,
+                    ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: _chair.isClosed
-                          ? AppTheme.danger.withValues(alpha:0.2)
-                          : AppTheme.success.withValues(alpha:0.15),
+                          ? AppTheme.danger.withValues(alpha: 0.2)
+                          : AppTheme.success.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
@@ -522,7 +580,7 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AppTheme.accent.withValues(alpha:0.15),
+                    color: AppTheme.accent.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
@@ -555,9 +613,9 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: AppTheme.danger.withValues(alpha:0.08),
+              color: AppTheme.danger.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppTheme.danger.withValues(alpha:0.2)),
+              border: Border.all(color: AppTheme.danger.withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [
@@ -591,47 +649,106 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
           Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed:
-                        _queue.isNotEmpty ? _nextCustomer : null,
-                    icon: const Icon(Icons.skip_next_rounded, size: 20),
-                    label: Text('العميل التالي',
-                        style: GoogleFonts.cairo(
-                            fontWeight: FontWeight.w700)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.success,
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14),
+                if (vipEnabled) ...[
+                  // Row 1 (VIP mode): Next VIP | Next Normal
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: vipEntries.isNotEmpty ? _nextVip : null,
+                          icon: const Icon(Icons.star_rounded,
+                              size: 18, color: Colors.white),
+                          label: Text('التالي VIP',
+                              style: GoogleFonts.cairo(
+                                  fontWeight: FontWeight.w700)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFFB300),
+                            foregroundColor: Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed:
+                              normalEntries.isNotEmpty ? _nextNormal : null,
+                          icon: const Icon(Icons.skip_next_rounded, size: 18),
+                          label: Text('التالي عادي',
+                              style: GoogleFonts.cairo(
+                                  fontWeight: FontWeight.w700)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.success,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  // Row 1 (Normal mode): single Next button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _queue.isNotEmpty ? _nextNormal : null,
+                      icon: const Icon(Icons.skip_next_rounded, size: 20),
+                      label: Text('التالي',
+                          style: GoogleFonts.cairo(
+                              fontWeight: FontWeight.w700, fontSize: 16)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.success,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: _undoDelete,
-                  icon: const Icon(Icons.undo_rounded),
-                  tooltip: 'تراجع',
-                  style: IconButton.styleFrom(
-                    backgroundColor:
-                        AppTheme.primary.withValues(alpha:0.08),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: _queue.isNotEmpty ? _clearQueue : null,
-                  icon: const Icon(Icons.delete_sweep_rounded,
-                      color: AppTheme.danger),
-                  tooltip: 'مسح الكل',
-                  style: IconButton.styleFrom(
-                    backgroundColor:
-                        AppTheme.danger.withValues(alpha:0.08),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
+                ],
+                const SizedBox(height: 8),
+                // Row 2: Undo | Clear
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _undoDelete,
+                        icon: const Icon(Icons.undo_rounded, size: 18),
+                        label: Text('تراجع',
+                            style: GoogleFonts.cairo(
+                                fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primary,
+                          side:
+                              const BorderSide(color: AppTheme.primary),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _queue.isNotEmpty ? _clearQueue : null,
+                        icon: const Icon(Icons.delete_sweep_rounded,
+                            size: 18, color: AppTheme.danger),
+                        label: Text('مسح الكل',
+                            style: GoogleFonts.cairo(
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.danger)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.danger,
+                          side: BorderSide(
+                              color: _queue.isNotEmpty
+                                  ? AppTheme.danger
+                                  : AppTheme.textMuted),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -648,7 +765,8 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                         children: [
                           Icon(Icons.inbox_rounded,
                               size: 64,
-                              color: AppTheme.textMuted.withValues(alpha:0.3)),
+                              color: AppTheme.textMuted
+                                  .withValues(alpha: 0.3)),
                           const SizedBox(height: 12),
                           Text(
                             'لا يوجد عملاء في الطابور',
@@ -677,100 +795,60 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                         ],
                       ),
                     )
-                  : ListView.builder(
+                  : ListView(
                       padding:
                           const EdgeInsets.fromLTRB(20, 12, 20, 100),
-                      itemCount: _queue.length,
-                      itemBuilder: (context, index) {
-                        final entry = _queue[index];
-                        return Dismissible(
-                          key: Key(entry.id),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerLeft,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24),
-                            decoration: BoxDecoration(
-                              color: AppTheme.danger,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(Icons.delete_rounded,
-                                color: Colors.white),
-                          ),
-                          onDismissed: (_) => _removeCustomer(entry),
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: AppTheme.divider),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: index == 0
-                                        ? AppTheme.accent
-                                        : AppTheme.primary
-                                            .withValues(alpha:0.08),
-                                    borderRadius:
-                                        BorderRadius.circular(13),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '${entry.position}',
-                                      style: GoogleFonts.cairo(
-                                        fontWeight: FontWeight.w800,
-                                        color: index == 0
-                                            ? Colors.white
-                                            : AppTheme.primary,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        entry.userName ?? 'عميل',
-                                        style: GoogleFonts.cairo(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppTheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        entry.userPhone ?? '',
-                                        style: GoogleFonts.cairo(
-                                          fontSize: 13,
-                                          color: AppTheme.textMuted,
-                                        ),
-                                        textDirection: TextDirection.ltr,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close_rounded,
-                                      color: AppTheme.danger, size: 22),
-                                  onPressed: () =>
-                                      _removeCustomer(entry),
-                                  tooltip: 'حذف',
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+                      children: vipEnabled
+                          ? [
+                              // ── VIP section ──
+                              const _SectionHeader(
+                                icon: Icons.star_rounded,
+                                label: 'طابور VIP',
+                                color: Color(0xFFFFB300),
+                              ),
+                              if (vipEntries.isEmpty)
+                                const _EmptySectionMessage(
+                                    label: 'لا يوجد عملاء VIP')
+                              else
+                                ...vipEntries.asMap().entries.map((e) {
+                                  final entry = e.value;
+                                  return _QueueEntryCard(
+                                    entry: entry,
+                                    isFirst: e.key == 0,
+                                    isVip: true,
+                                    onRemove: () => _removeCustomer(entry),
+                                  );
+                                }),
+                              const SizedBox(height: 16),
+                              // ── Normal section ──
+                              const _SectionHeader(
+                                icon: Icons.people_rounded,
+                                label: 'الطابور العادي',
+                                color: AppTheme.accent,
+                              ),
+                              if (normalEntries.isEmpty)
+                                const _EmptySectionMessage(
+                                    label: 'لا يوجد عملاء في الطابور العادي')
+                              else
+                                ...normalEntries.asMap().entries.map((e) {
+                                  final entry = e.value;
+                                  return _QueueEntryCard(
+                                    entry: entry,
+                                    isFirst: e.key == 0,
+                                    isVip: false,
+                                    onRemove: () => _removeCustomer(entry),
+                                  );
+                                }),
+                            ]
+                          : _queue.asMap().entries.map((e) {
+                              final entry = e.value;
+                              return _QueueEntryCard(
+                                entry: entry,
+                                isFirst: e.key == 0,
+                                isVip: false,
+                                onRemove: () => _removeCustomer(entry),
+                              );
+                            }).toList(),
                     ),
         ),
       ],
@@ -888,6 +966,7 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
         ),
         actions: _currentIndex == 0
             ? [
+                // Auto-remove timer toggle
                 IconButton(
                   icon: Icon(
                     _autoRemoveEnabled
@@ -900,6 +979,34 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
                       ? 'إيقاف الحذف التلقائي'
                       : 'تفعيل الحذف التلقائي',
                 ),
+                // VIP queue lock — only shown when VIP is enabled
+                if (widget.barber.vipEnabled)
+                  IconButton(
+                    icon: Icon(
+                      Icons.star_rounded,
+                      color: _chair.isVipLocked
+                          ? AppTheme.danger
+                          : const Color(0xFFFFB300),
+                    ),
+                    onPressed: _toggleVipLocked,
+                    tooltip: _chair.isVipLocked
+                        ? 'فتح طابور VIP'
+                        : 'إغلاق طابور VIP',
+                  ),
+                // Queue lock toggle
+                IconButton(
+                  icon: Icon(
+                    Icons.people_rounded,
+                    color: _chair.isNormalLocked
+                        ? AppTheme.danger
+                        : AppTheme.accent,
+                  ),
+                  onPressed: _toggleNormalLocked,
+                  tooltip: _chair.isNormalLocked
+                      ? 'فتح الطابور'
+                      : 'إغلاق الطابور',
+                ),
+                // Chair open/closed toggle
                 IconButton(
                   icon: Icon(
                     _chair.isClosed
@@ -971,9 +1078,220 @@ class _ChairDashboardScreenState extends State<ChairDashboardScreen> {
   }
 }
 
+// ─── Section Header ───────────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _SectionHeader({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.cairo(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Empty Section Message ────────────────────────────────────
+class _EmptySectionMessage extends StatelessWidget {
+  final String label;
+  const _EmptySectionMessage({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      child: Text(
+        label,
+        style: GoogleFonts.cairo(
+          fontSize: 13,
+          color: AppTheme.textMuted,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+// ─── Header Badge ─────────────────────────────────────────────
+class _HeaderBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _HeaderBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 15),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: GoogleFonts.cairo(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Queue Entry Card ─────────────────────────────────────────
+class _QueueEntryCard extends StatelessWidget {
+  final QueueEntryModel entry;
+  final bool isFirst;
+  final bool isVip;
+  final VoidCallback onRemove;
+
+  const _QueueEntryCard({
+    required this.entry,
+    required this.isFirst,
+    required this.isVip,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final posColor = isVip
+        ? (isFirst ? const Color(0xFFFFB300) : const Color(0xFFFFD54F))
+        : (isFirst ? AppTheme.accent : AppTheme.primary.withValues(alpha: 0.08));
+    final posTextColor = isVip
+        ? (isFirst ? Colors.white : const Color(0xFF7A5800))
+        : (isFirst ? Colors.white : AppTheme.primary);
+
+    return Dismissible(
+      key: Key(entry.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        decoration: BoxDecoration(
+          color: AppTheme.danger,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Icon(Icons.delete_rounded, color: Colors.white),
+      ),
+      onDismissed: (_) => onRemove(),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isVip
+                ? const Color(0xFFFFB300).withValues(alpha: 0.35)
+                : AppTheme.divider,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Position badge
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: posColor,
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Center(
+                child: isVip && isFirst
+                    ? const Icon(Icons.star_rounded,
+                        color: Colors.white, size: 22)
+                    : Text(
+                        '${entry.position}',
+                        style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.w800,
+                          color: posTextColor,
+                          fontSize: 18,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.userName ?? 'عميل',
+                    style: GoogleFonts.cairo(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    entry.userPhone ?? '',
+                    style: GoogleFonts.cairo(
+                      fontSize: 13,
+                      color: AppTheme.textMuted,
+                    ),
+                    textDirection: TextDirection.ltr,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded,
+                  color: AppTheme.danger, size: 22),
+              onPressed: onRemove,
+              tooltip: 'حذف',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Guest Form Dialog ────────────────────────────────────────
 class _GuestFormDialog extends StatefulWidget {
-  const _GuestFormDialog();
+  final bool vipEnabled;
+  const _GuestFormDialog({this.vipEnabled = false});
 
   @override
   State<_GuestFormDialog> createState() => _GuestFormDialogState();
@@ -983,6 +1301,7 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isVip = false;
 
   @override
   void dispose() {
@@ -1004,7 +1323,7 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: AppTheme.primary.withValues(alpha:0.08),
+                color: AppTheme.primary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.person_outline_rounded,
@@ -1062,6 +1381,47 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                           ? 'أدخل رقم الهاتف'
                           : null,
                 ),
+                if (widget.vipEnabled) ...[
+                  const SizedBox(height: 14),
+                  // VIP toggle row
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _isVip
+                          ? const Color(0xFFFFB300).withValues(alpha: 0.1)
+                          : AppTheme.primary.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _isVip
+                            ? const Color(0xFFFFB300).withValues(alpha: 0.4)
+                            : AppTheme.divider,
+                      ),
+                    ),
+                    child: SwitchListTile(
+                      value: _isVip,
+                      onChanged: (v) => setState(() => _isVip = v),
+                      secondary: Icon(
+                        Icons.star_rounded,
+                        color: _isVip
+                            ? const Color(0xFFFFB300)
+                            : AppTheme.textMuted,
+                      ),
+                      title: Text(
+                        'طابور VIP',
+                        style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.w600,
+                          color: _isVip
+                              ? const Color(0xFFFFB300)
+                              : AppTheme.primary,
+                          fontSize: 14,
+                        ),
+                      ),
+                      activeThumbColor: const Color(0xFFFFB300),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      dense: true,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1077,6 +1437,7 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 Navigator.pop(context, {
                   'name': _nameCtrl.text.trim(),
                   'phone': _phoneCtrl.text.trim(),
+                  'type': _isVip ? 'vip' : 'normal',
                 });
               }
             },

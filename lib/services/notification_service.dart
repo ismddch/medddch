@@ -63,12 +63,35 @@ class NotificationService {
     await _plugin.show(
       100,
       'عميل جديد في الطابور',
-      'انضم عميل جديد إلى طابور $chairName',
+      chairName.isNotEmpty
+          ? 'انضم عميل جديد إلى طابور $chairName'
+          : 'انضم عميل جديد إلى الطابور',
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'new_customer',
           'عملاء جدد',
           channelDescription: 'إشعارات انضمام عملاء جدد للطابور',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+    );
+  }
+
+  // Position 3 notification (new — FCM triggers this for position 3 as well).
+  static Future<void> notifyCustomerPositionThree() async {
+    if (!_initialized) return;
+    await _plugin.show(
+      3,
+      'اقترب دورك',
+      'أنت في المرتبة الثالثة — استعد قريباً!',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'queue_position',
+          'موقعك في الطابور',
+          channelDescription: 'إشعارات تغيير موقعك في طابور الانتظار',
           importance: Importance.high,
           priority: Priority.high,
           playSound: true,

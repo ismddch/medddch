@@ -483,6 +483,91 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                     }),
                   const SizedBox(height: 28),
 
+                  // ─── VIP Privileges Section ────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'صلاحيات VIP',
+                      style: GoogleFonts.cairo(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 4),
+                        secondary: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: (barber.vipEnabled
+                                    ? const Color(0xFFFFB300)
+                                    : AppTheme.textMuted)
+                                .withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.star_rounded,
+                            color: barber.vipEnabled
+                                ? const Color(0xFFFFB300)
+                                : AppTheme.textMuted,
+                            size: 22,
+                          ),
+                        ),
+                        title: Text(
+                          'تفعيل طابور VIP',
+                          style: GoogleFonts.cairo(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          barber.vipEnabled
+                              ? 'العملاء يمكنهم اختيار VIP أو عادي'
+                              : 'الطابور العادي فقط متاح للعملاء',
+                          style: GoogleFonts.cairo(
+                            fontSize: 12,
+                            color: AppTheme.textMuted,
+                          ),
+                        ),
+                        value: barber.vipEnabled,
+                        activeThumbColor: const Color(0xFFFFB300),
+                        onChanged: (val) async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            await _service.toggleBarberVip(barber.id, val);
+                            await _loadData();
+                          } catch (e) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e.toString().replaceAll('Exception: ', ''),
+                                  style: GoogleFonts.cairo(),
+                                ),
+                                backgroundColor: Colors.red,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+
                   // ─── Barber Account Section ────────
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),

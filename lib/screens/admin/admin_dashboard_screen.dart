@@ -472,25 +472,56 @@ class _BarberCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: barber.isActive
-                              ? AppTheme.success.withOpacity(0.1)
-                              : AppTheme.danger.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          barber.isActive ? 'نشط' : 'معطل',
-                          style: GoogleFonts.cairo(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: barber.isActive
-                                ? AppTheme.success
-                                : AppTheme.danger,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (barber.vipEnabled)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFB300).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.star_rounded,
+                                      size: 11, color: Color(0xFFFFB300)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'VIP',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFFFFB300),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: barber.isActive
+                                  ? AppTheme.success.withValues(alpha: 0.1)
+                                  : AppTheme.danger.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              barber.isActive ? 'نشط' : 'معطل',
+                              style: GoogleFonts.cairo(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: barber.isActive
+                                    ? AppTheme.success
+                                    : AppTheme.danger,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),

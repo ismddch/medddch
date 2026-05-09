@@ -7,6 +7,7 @@ class BarberModel {
   final String? phone;
   final String? address;
   final bool isActive;
+  final bool vipEnabled;
 
   BarberModel({
     required this.id,
@@ -16,6 +17,7 @@ class BarberModel {
     this.phone,
     this.address,
     this.isActive = true,
+    this.vipEnabled = false,
   });
 
   factory BarberModel.fromMap(Map<String, dynamic> map) {
@@ -27,6 +29,7 @@ class BarberModel {
       phone: map['phone'],
       address: map['address'],
       isActive: map['is_active'] ?? true,
+      vipEnabled: map['vip_enabled'] ?? false,
     );
   }
 
@@ -38,6 +41,7 @@ class BarberModel {
         'phone': phone,
         'address': address,
         'is_active': isActive,
+        'vip_enabled': vipEnabled,
       };
 }
 
@@ -138,6 +142,8 @@ class ChairModel {
   final String name;
   final String? imageUrl;
   final bool isClosed;
+  final bool isVipLocked;
+  final bool isNormalLocked;
   int queueLength;
 
   ChairModel({
@@ -146,6 +152,8 @@ class ChairModel {
     required this.name,
     this.imageUrl,
     this.isClosed = false,
+    this.isVipLocked = false,
+    this.isNormalLocked = false,
     this.queueLength = 0,
   });
 
@@ -156,6 +164,8 @@ class ChairModel {
       name: map['name'],
       imageUrl: map['image_url'],
       isClosed: map['is_closed'] ?? false,
+      isVipLocked: map['vip_locked'] ?? false,
+      isNormalLocked: map['normal_locked'] ?? false,
       queueLength: map['queue_length'] ?? 0,
     );
   }
@@ -194,6 +204,7 @@ class QueueEntryModel {
   final String chairId;
   final String userId;
   final int position;
+  final String queueType;
   final DateTime createdAt;
   String? userName;
   String? userPhone;
@@ -203,6 +214,7 @@ class QueueEntryModel {
     required this.chairId,
     required this.userId,
     required this.position,
+    this.queueType = 'normal',
     required this.createdAt,
     this.userName,
     this.userPhone,
@@ -215,6 +227,7 @@ class QueueEntryModel {
       chairId: map['chair_id'],
       userId: map['user_id'],
       position: map['position'],
+      queueType: map['queue_type'] ?? 'normal',
       createdAt: DateTime.parse(map['created_at']),
       userName: user != null ? user['name'] : null,
       userPhone: user != null ? user['phone'] : null,

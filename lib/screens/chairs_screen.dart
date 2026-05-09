@@ -21,12 +21,22 @@ class _ChairsScreenState extends State<ChairsScreen> {
   BarberModel? _barber;
   bool _loading = true;
   RealtimeChannel? _subscription;
+  String? _lastBarberId;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
     _subscription = _service.subscribeToQueues(_loadData);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final barberId = context.read<AuthProvider>().user?.barberId;
+    if (barberId != _lastBarberId) {
+      _lastBarberId = barberId;
+      _loadData();
+    }
   }
 
   @override

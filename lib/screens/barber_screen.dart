@@ -8,6 +8,7 @@ import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'chair_dashboard_screen.dart';
 import 'login_screen.dart';
+import 'products_screen.dart';
 
 class BarberScreen extends StatefulWidget {
   const BarberScreen({super.key});
@@ -23,6 +24,7 @@ class _BarberScreenState extends State<BarberScreen> {
   BarberModel? _barber;
   bool _loading = true;
   RealtimeChannel? _subscription;
+  int _tabIndex = 0;
 
   @override
   void initState() {
@@ -174,6 +176,40 @@ class _BarberScreenState extends State<BarberScreen> {
     final user = context.watch<AuthProvider>().user;
 
     return Scaffold(
+      body: IndexedStack(
+        index: _tabIndex,
+        children: [
+          _buildChairsTab(user),
+          ProductsScreen(barberId: user?.barberId),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _tabIndex,
+        onTap: (i) => setState(() => _tabIndex = i),
+        selectedItemColor: AppTheme.accent,
+        unselectedItemColor: AppTheme.textMuted,
+        selectedLabelStyle: GoogleFonts.cairo(fontWeight: FontWeight.w700),
+        unselectedLabelStyle: GoogleFonts.cairo(),
+        backgroundColor: Colors.white,
+        elevation: 12,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.chair_outlined),
+            activeIcon: Icon(Icons.chair_rounded),
+            label: 'الكراسي',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.shopping_bag_outlined),
+            activeIcon: Icon(Icons.shopping_bag_rounded),
+            label: 'المنتجات',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChairsTab(UserModel? user) {
+    return Scaffold(
       appBar: AppBar(
         title: Text('اختر كرسيك', style: GoogleFonts.cairo()),
         automaticallyImplyLeading: false,
@@ -190,8 +226,7 @@ class _BarberScreenState extends State<BarberScreen> {
                 child: Row(children: [
                   const Icon(Icons.logout_rounded, size: 20),
                   const SizedBox(width: 10),
-                  Text('تسجيل الخروج',
-                      style: GoogleFonts.cairo(fontSize: 14)),
+                  Text('تسجيل الخروج', style: GoogleFonts.cairo(fontSize: 14)),
                 ]),
               ),
               PopupMenuItem(
@@ -201,8 +236,7 @@ class _BarberScreenState extends State<BarberScreen> {
                       size: 20, color: Colors.red),
                   const SizedBox(width: 10),
                   Text('حذف الحساب',
-                      style: GoogleFonts.cairo(
-                          fontSize: 14, color: Colors.red)),
+                      style: GoogleFonts.cairo(fontSize: 14, color: Colors.red)),
                 ]),
               ),
             ],
@@ -232,12 +266,10 @@ class _BarberScreenState extends State<BarberScreen> {
                           height: 72,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(
-                                color: AppTheme.accent, width: 3),
+                            border: Border.all(color: AppTheme.accent, width: 3),
                             image: _barber!.imageUrl != null
                                 ? DecorationImage(
-                                    image:
-                                        NetworkImage(_barber!.imageUrl!),
+                                    image: NetworkImage(_barber!.imageUrl!),
                                     fit: BoxFit.cover)
                                 : null,
                             color: AppTheme.accent.withValues(alpha: 0.2),
@@ -261,9 +293,7 @@ class _BarberScreenState extends State<BarberScreen> {
                       Text(
                         'مرحباً ${user?.name ?? ''} — اختر الكرسي الذي ستعمل عليه',
                         style: GoogleFonts.cairo(
-                          fontSize: 13,
-                          color: Colors.white70,
-                        ),
+                            fontSize: 13, color: Colors.white70),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -301,10 +331,9 @@ class _BarberScreenState extends State<BarberScreen> {
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: Colors.white,
-                                    borderRadius:
-                                        BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: AppTheme.divider),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border:
+                                        Border.all(color: AppTheme.divider),
                                     boxShadow: [
                                       BoxShadow(
                                         color: AppTheme.primary
@@ -361,8 +390,9 @@ class _BarberScreenState extends State<BarberScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 3),
+                                        padding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 3),
                                         decoration: BoxDecoration(
                                           color: chair.isClosed
                                               ? AppTheme.danger

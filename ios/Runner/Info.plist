@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Hallaqak</string>
+	<string>حلاقك</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Hallaqak</string>
+	<string>حلاقك</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -50,8 +50,8 @@
 		<string>whatsapp</string>
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>يحتاج التطبيق إلى الوصول إلى معرض الصور لاختيار صورة الحلاق.</string>
+	<string>يستخدم التطبيق معرض الصور لاختيار صورة الملف الشخصي والمنتجات.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>يحتاج التطبيق إلى حفظ الصور في معرض الصور.</string>
+	<string>يستخدم التطبيق معرض الصور لاختيار الصور فقط، ولا يحفظ أي صور.</string>
 </dict>
 </plist>

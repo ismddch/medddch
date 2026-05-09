@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/fcm_service.dart';
 import '../services/supabase_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -57,6 +58,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_user_id', user.id);
+      FcmService.onUserLoggedIn(user.id);
       return true;
     } catch (e) {
       _error = 'خطأ في تسجيل الدخول: ${e.toString()}';
@@ -87,6 +89,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_user_id', _user!.id);
+      FcmService.onUserLoggedIn(_user!.id);
       return true;
     } catch (e) {
       _error = e.toString().replaceAll('Exception: ', '');
@@ -120,6 +123,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void logout() {
+    if (_user != null) FcmService.onUserLoggedOut(_user!.id);
     SharedPreferences.getInstance()
         .then((prefs) => prefs.remove('saved_user_id'));
     _user = null;

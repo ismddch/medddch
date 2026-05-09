@@ -156,12 +156,13 @@ class SupabaseService {
       'barber_id': barber.id,
       'barber_name': barber.name,
       'barber_code': barber.code,
+      'changed_at': DateTime.now().toUtc().toIso8601String(),
     });
 
     return barber;
   }
 
-  /// Fetch the barber code change history for a customer, newest first.
+  /// Fetch the last 3 distinct barbers from a customer's code-change history.
   Future<List<BarberCodeHistoryModel>> getBarberCodeHistory(
       String userId) async {
     final res = await _client
@@ -169,9 +170,17 @@ class SupabaseService {
         .select()
         .eq('user_id', userId)
         .order('changed_at', ascending: false);
-    return (res as List)
-        .map((r) => BarberCodeHistoryModel.fromMap(r))
-        .toList();
+
+    final seen = <String>{};
+    final unique = <BarberCodeHistoryModel>[];
+    for (final row in res as List) {
+      final entry = BarberCodeHistoryModel.fromMap(row);
+      if (seen.add(entry.barberId)) {
+        unique.add(entry);
+        if (unique.length == 3) break;
+      }
+    }
+    return unique;
   }
 
   // ─── CHAIRS ───────────────────────────────────────────────
@@ -195,19 +204,33 @@ class SupabaseService {
         name: row['name'],
         imageUrl: row['image_url'],
         isClosed: row['is_closed'] ?? false,
+        isVipLocked: row['vip_locked'] ?? false,
+        isNormalLocked: row['normal_locked'] ?? false,
         queueLength: count is int ? count : int.tryParse('$count') ?? 0,
       );
     }).toList();
   }
 
+  /// Get a single chair by ID.
+  Future<ChairModel?> getChairById(String chairId) async {
+    final res = await _client
+        .from('chairs')
+        .select()
+        .eq('id', chairId)
+        .maybeSingle();
+    if (res == null) return null;
+    return ChairModel.fromMap(res);
+  }
+
   // ─── QUEUE ────────────────────────────────────────────────
 
-  /// Get queue entries for a specific chair, ordered by position.
+  /// Get queue entries for a specific chair, VIP first then by position.
   Future<List<QueueEntryModel>> getQueueForChair(String chairId) async {
     final res = await _client
         .from('queues')
         .select('*, users(name, phone)')
         .eq('chair_id', chairId)
+        .order('queue_type', ascending: false)  // 'vip' > 'normal' alphabetically, so VIP first
         .order('position', ascending: true);
 
     return (res as List).map((r) => QueueEntryModel.fromMap(r)).toList();
@@ -227,6 +250,7 @@ class SupabaseService {
         .from('queues')
         .select('*, users(name, phone)')
         .inFilter('chair_id', chairIds)
+        .order('queue_type', ascending: false)
         .order('position', ascending: true);
 
     return (res as List).map((r) => QueueEntryModel.fromMap(r)).toList();
@@ -256,19 +280,48 @@ class SupabaseService {
     return res?['position'] as int?;
   }
 
-  /// Join a queue.
-  Future<void> joinQueue(String chairId, String userId) async {
+  /// Get user's queue entry (position + queue_type) for a specific chair.
+  Future<Map<String, dynamic>?> getUserQueueEntry(
+      String userId, String chairId) async {
+    final res = await _client
+        .from('queues')
+        .select('position, queue_type')
+        .eq('user_id', userId)
+        .eq('chair_id', chairId)
+        .maybeSingle();
+    return res; // has keys 'position' (int) and 'queue_type' (String), or null
+  }
+
+  /// Join a queue with specified type (vip or normal).
+  Future<void> joinQueue(String chairId, String userId,
+      {String queueType = 'normal'}) async {
     // Check if already in any queue
     final inQueue = await isUserInQueue(userId);
     if (inQueue) {
       throw Exception('أنت بالفعل في طابور');
     }
 
-    // Get next position
+    // Check chair and queue-type lock status
+    final chairRes = await _client
+        .from('chairs')
+        .select('is_closed, vip_locked, normal_locked')
+        .eq('id', chairId)
+        .single();
+
+    if (chairRes['is_closed'] == true) throw Exception('الكرسي مغلق حالياً');
+    if (queueType == 'vip' && (chairRes['vip_locked'] ?? false)) {
+      throw Exception('طابور VIP مغلق حالياً');
+    }
+    if (queueType == 'normal' && (chairRes['normal_locked'] ?? false)) {
+      throw Exception('الطابور العادي مغلق حالياً');
+    }
+
+    // Get next position within this queue type
     final posRes = await _client
         .from('queues')
         .select('position')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
@@ -280,24 +333,25 @@ class SupabaseService {
       'chair_id': chairId,
       'user_id': userId,
       'position': nextPosition,
+      'queue_type': queueType,
     });
   }
 
-  /// Remove the first person in queue (for barber "Next" action).
-  Future<void> removeFirstInQueue(String chairId) async {
+  /// Remove the first person in queue of a given type (for barber "Next" action).
+  Future<void> removeFirstInQueue(String chairId, String queueType) async {
     final first = await _client
         .from('queues')
-        .select('id, chair_id, user_id, position')
+        .select('id, chair_id, user_id, position, queue_type')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .order('position', ascending: true)
         .limit(1)
         .maybeSingle();
 
     if (first != null) {
-      // Save to undo history
       await _saveDeletedEntry(first);
       await _client.from('queues').delete().eq('id', first['id']);
-      await _reorderQueue(chairId);
+      await _reorderQueue(chairId, queueType);
     }
   }
 
@@ -306,29 +360,29 @@ class SupabaseService {
     // Fetch entry before deleting for undo
     final entry = await _client
         .from('queues')
-        .select('id, chair_id, user_id, position')
+        .select('id, chair_id, user_id, position, queue_type')
         .eq('id', queueId)
         .maybeSingle();
 
     if (entry != null) {
       await _saveDeletedEntry(entry);
+      await _client.from('queues').delete().eq('id', queueId);
+      await _reorderQueue(chairId, entry['queue_type'] as String);
     }
-    await _client.from('queues').delete().eq('id', queueId);
-    await _reorderQueue(chairId);
   }
 
   /// Customer leaves the queue voluntarily.
   Future<void> leaveQueue(String userId) async {
     final entry = await _client
         .from('queues')
-        .select('id, chair_id')
+        .select('id, chair_id, queue_type')
         .eq('user_id', userId)
         .maybeSingle();
 
     if (entry == null) return;
 
     await _client.from('queues').delete().eq('id', entry['id']);
-    await _reorderQueue(entry['chair_id']);
+    await _reorderQueue(entry['chair_id'], entry['queue_type'] as String);
   }
 
   /// Save a deleted entry for undo.
@@ -338,6 +392,7 @@ class SupabaseService {
       'chair_id': entry['chair_id'],
       'user_id': entry['user_id'],
       'position': entry['position'],
+      'queue_type': entry['queue_type'] ?? 'normal',
     });
   }
 
@@ -368,12 +423,14 @@ class SupabaseService {
 
     final originalPos = lastDeleted['position'] as int;
     final chairId = lastDeleted['chair_id'] as String;
+    final queueType = lastDeleted['queue_type'] as String? ?? 'normal';
 
-    // Shift all entries at or after the original position down by one
+    // Shift all entries at or after the original position down by one (within same type)
     final toShift = await _client
         .from('queues')
         .select('id, position')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .gte('position', originalPos)
         .order('position', ascending: false);
 
@@ -389,6 +446,7 @@ class SupabaseService {
       'chair_id': chairId,
       'user_id': lastDeleted['user_id'],
       'position': originalPos,
+      'queue_type': queueType,
     });
 
     // Remove from undo history
@@ -416,12 +474,13 @@ class SupabaseService {
     }
   }
 
-  /// Reorder queue positions after a removal.
-  Future<void> _reorderQueue(String chairId) async {
+  /// Reorder queue positions after a removal, within a specific queue type.
+  Future<void> _reorderQueue(String chairId, String queueType) async {
     final entries = await _client
         .from('queues')
         .select('id')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .order('position', ascending: true);
 
     int pos = 1;
@@ -442,6 +501,16 @@ class SupabaseService {
         .from('chairs')
         .update({'is_closed': isClosed})
         .eq('id', chairId);
+  }
+
+  /// Toggle VIP queue locked state for a chair.
+  Future<void> toggleVipLocked(String chairId, bool isLocked) async {
+    await _client.from('chairs').update({'vip_locked': isLocked}).eq('id', chairId);
+  }
+
+  /// Toggle Normal queue locked state for a chair.
+  Future<void> toggleNormalLocked(String chairId, bool isLocked) async {
+    await _client.from('chairs').update({'normal_locked': isLocked}).eq('id', chairId);
   }
 
   /// Close or open the entire shop (all chairs).
@@ -467,7 +536,8 @@ class SupabaseService {
   }
 
   /// Add a customer to the queue by phone number (existing account).
-  Future<void> addCustomerToQueue(String chairId, String phone) async {
+  Future<void> addCustomerToQueue(String chairId, String phone,
+      {String queueType = 'normal'}) async {
     final userRes = await _client
         .from('users')
         .select('id')
@@ -489,6 +559,7 @@ class SupabaseService {
         .from('queues')
         .select('position')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
@@ -498,6 +569,7 @@ class SupabaseService {
       'chair_id': chairId,
       'user_id': userId,
       'position': nextPos,
+      'queue_type': queueType,
     });
   }
 
@@ -508,6 +580,7 @@ class SupabaseService {
     required String name,
     required String phone,
     required String barberId,
+    String queueType = 'normal',
   }) async {
     // Check if phone already exists
     final existing = await _client
@@ -541,11 +614,12 @@ class SupabaseService {
       userId = res['id'] as String;
     }
 
-    // Get next position
+    // Get next position within this queue type
     final posRes = await _client
         .from('queues')
         .select('position')
         .eq('chair_id', chairId)
+        .eq('queue_type', queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
@@ -555,26 +629,31 @@ class SupabaseService {
       'chair_id': chairId,
       'user_id': userId,
       'position': nextPos,
+      'queue_type': queueType,
     });
   }
 
-  /// Auto-remove the first person in queue for a chair (for timer feature).
+  /// Auto-remove: tries VIP first, then Normal.
   /// Returns true if someone was removed.
   Future<bool> autoRemoveFirst(String chairId) async {
-    final first = await _client
-        .from('queues')
-        .select('id, chair_id, user_id, position')
-        .eq('chair_id', chairId)
-        .order('position', ascending: true)
-        .limit(1)
-        .maybeSingle();
+    for (final type in ['vip', 'normal']) {
+      final first = await _client
+          .from('queues')
+          .select('id, chair_id, user_id, position, queue_type')
+          .eq('chair_id', chairId)
+          .eq('queue_type', type)
+          .order('position', ascending: true)
+          .limit(1)
+          .maybeSingle();
 
-    if (first == null) return false;
-
-    await _saveDeletedEntry(first);
-    await _client.from('queues').delete().eq('id', first['id']);
-    await _reorderQueue(chairId);
-    return true;
+      if (first != null) {
+        await _saveDeletedEntry(first);
+        await _client.from('queues').delete().eq('id', first['id']);
+        await _reorderQueue(chairId, type);
+        return true;
+      }
+    }
+    return false;
   }
 
   // ─── REALTIME ─────────────────────────────────────────────
@@ -679,6 +758,14 @@ class SupabaseService {
     await _client
         .from('barbers')
         .update({'is_active': isActive})
+        .eq('id', barberId);
+  }
+
+  /// Toggle VIP queue privilege for a barber.
+  Future<void> toggleBarberVip(String barberId, bool enabled) async {
+    await _client
+        .from('barbers')
+        .update({'vip_enabled': enabled})
         .eq('id', barberId);
   }
 
