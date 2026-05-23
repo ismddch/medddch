@@ -22,7 +22,6 @@ void main() async {
     anonKey: 'sb_publishable_gXo6m12b4EGEGeEIS4UaMA_F4G_F9T_',
   );
 
-
   final authProvider = AuthProvider();
   await authProvider.loadSession();
 

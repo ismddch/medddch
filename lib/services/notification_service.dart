@@ -80,6 +80,33 @@ class NotificationService {
     );
   }
 
+  // Sent to the barber when a new paid booking request arrives.
+  static Future<void> notifyBarberNewPayment(String customerName) async {
+    if (!_initialized) return;
+    await _plugin.show(
+      200,
+      'طلب حجز مدفوع جديد 💰',
+      customerName.isNotEmpty
+          ? 'أرسل $customerName طلب حجز — راجع الإيصال وأكّد الدفع'
+          : 'وصل طلب حجز مدفوع جديد — راجع الإيصال وأكّد الدفع',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'paid_booking',
+          'الحجوزات المدفوعة',
+          channelDescription: 'إشعارات طلبات الحجز المدفوعة الواردة',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+    );
+  }
+
   // Position 3 notification (new — FCM triggers this for position 3 as well).
   static Future<void> notifyCustomerPositionThree() async {
     if (!_initialized) return;

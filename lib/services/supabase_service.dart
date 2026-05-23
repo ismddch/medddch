@@ -241,6 +241,17 @@ class SupabaseService {
     return (res as List).map((r) => QueueEntryModel.fromMap(r)).toList();
   }
 
+  /// Get the user's current active queue entry with barber + shop info.
+  Future<QueueEntryModel?> getMyActiveQueueEntry(String userId) async {
+    final res = await _client
+        .from('queues')
+        .select('*, barbers(name, image_url, shop_id, shops(name, prepayment_enabled))')
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (res == null) return null;
+    return QueueEntryModel.fromMap(res);
+  }
+
   /// Check if user is already in any queue.
   Future<bool> isUserInQueue(String userId) async {
     final res = await _client
@@ -785,19 +796,21 @@ class SupabaseService {
   // ─── ADMIN: BARBER (STAFF) MANAGEMENT ────────────────────
 
   /// Add a barber (staff member) to a shop.
-  Future<void> addBarber(String shopId, String name, {String? imageUrl}) async {
+  Future<void> addBarber(String shopId, String name, {String? imageUrl, String? location}) async {
     await _client.from('barbers').insert({
       'shop_id': shopId,
       'name': name,
       'image_url': imageUrl,
+      'location': location,
     });
   }
 
-  /// Update a barber's (staff) name and image.
-  Future<void> updateBarber(String barberId, {required String name, String? imageUrl}) async {
+  /// Update a barber's (staff) name, image, and location.
+  Future<void> updateBarber(String barberId, {required String name, String? imageUrl, String? location}) async {
     await _client.from('barbers').update({
       'name': name,
       'image_url': imageUrl,
+      'location': location,
     }).eq('id', barberId);
   }
 
@@ -959,6 +972,7 @@ class SupabaseService {
           likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
           shopName:      shop?['name'],
           paymentNumber: m['payment_number'],
+          location:      m['location'],
         );
       }).toList();
     } catch (_) {
@@ -1070,6 +1084,7 @@ class SupabaseService {
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         shopName:      shop?['name'],
         paymentNumber: row['payment_number'],
+        location:      row['location'],
       );
     }).toList();
 
@@ -1116,6 +1131,7 @@ class SupabaseService {
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         paymentNumber: row['payment_number'],
+        location:      row['location'],
       );
     }).toList();
   }
@@ -1286,13 +1302,30 @@ class SupabaseService {
         .eq('id', barberId);
   }
 
-  RealtimeChannel subscribeToPaymentsForBarber(void Function() onChanged) {
+  RealtimeChannel subscribeToPaymentsForBarber(
+      String barberId, void Function() onChanged) {
     return _client
-        .channel('barber-payment-changes')
+        .channel('barber-payment-changes-$barberId')
         .onPostgresChanges(
-          event: PostgresChangeEvent.all,
+          event: PostgresChangeEvent.insert,
           schema: 'public',
           table: 'payment_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'barber_id',
+            value: barberId,
+          ),
+          callback: (payload) => onChanged(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'payment_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'barber_id',
+            value: barberId,
+          ),
           callback: (payload) => onChanged(),
         )
         .subscribe();

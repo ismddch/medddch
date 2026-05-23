@@ -1,9 +1,8 @@
 name: Deploy Android to Play Store
 
 # ─── Triggers ───────────────────────────────────────────────────────────────
-# • Push a tag like v1.0.3+17 → auto-deploy to the 'internal' track.
-# • Go to Actions → "Deploy Android to Play Store" → Run workflow
-#   to pick any track manually.
+# • Push a tag like v1.0.5+20 → auto-deploy to the 'internal' track.
+# • Go to Actions → "Deploy Android to Play Store" → Run workflow manually.
 on:
   workflow_dispatch:
     inputs:
@@ -22,25 +21,20 @@ on:
       - 'v*'
 
 # ─── Required GitHub Secrets ────────────────────────────────────────────────
-# Add these in: Settings → Secrets and variables → Actions → New repository secret
-#
 # ANDROID_KEYSTORE_BASE64
-#   The upload keystore encoded as base64.
-#   On macOS/Linux:  base64 -w 0 android/app/upload-keystore.jks
-#   On Windows:      [Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\upload-keystore.jks"))
+#   On Windows PowerShell:
+#   [Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\upload-keystore.jks")) | Set-Clipboard
 #
-# ANDROID_KEY_ALIAS        — keyAlias value from android/key.properties
-# ANDROID_KEY_PASSWORD     — keyPassword value from android/key.properties
-# ANDROID_STORE_PASSWORD   — storePassword value from android/key.properties
+# ANDROID_KEY_ALIAS        → upload
+# ANDROID_KEY_PASSWORD     → 49504900
+# ANDROID_STORE_PASSWORD   → 49504900
 #
 # GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
-#   Full JSON content of the Google Cloud service-account key that has the
-#   "Google Play Android Developer" role in Google Play Console.
-#   How to create: https://docs.fastlane.tools/getting-started/android/setup/#setting-up-supply
+#   Full JSON of the Google Cloud service-account key (Play Android Developer role).
 
 jobs:
   deploy:
-    name: Build & Deploy Android AAB
+    name: Build & Deploy Android via Fastlane
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -49,14 +43,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Java 17 (matches build.gradle.kts compileOptions) ─────────────────
+      # ── 2. Java 17 ───────────────────────────────────────────────────────────
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # ── 3. Flutter (same channel/version used locally) ────────────────────────
+      # ── 3. Flutter ────────────────────────────────────────────────────────────
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -64,15 +58,25 @@ jobs:
           channel: stable
           cache: true
 
-      # ── 4. Restore keystore from secret ──────────────────────────────────────
+      # ── 4. Ruby + Fastlane ────────────────────────────────────────────────────
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          working-directory: android
+
+      - name: Install Fastlane
+        working-directory: android
+        run: bundle install --jobs 4 --retry 3
+
+      # ── 5. Restore keystore ───────────────────────────────────────────────────
       - name: Decode upload keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
 
-      # ── 5. Write key.properties (consumed by build.gradle.kts) ───────────────
-      #    storeFile is relative to the android/app/ module directory.
+      # ── 6. Write key.properties ───────────────────────────────────────────────
       - name: Create key.properties
         env:
           KEY_ALIAS:      ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -86,23 +90,25 @@ jobs:
           storeFile=upload-keystore.jks
           EOF
 
-      # ── 6. Dart packages ──────────────────────────────────────────────────────
+      # ── 7. Dart packages ──────────────────────────────────────────────────────
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── 7. Build signed release App Bundle ───────────────────────────────────
+      # ── 8. Build signed AAB ───────────────────────────────────────────────────
       - name: Build release AAB
         run: flutter build appbundle --release
 
-      # ── 8. Upload to Google Play ─────────────────────────────────────────────
-      #    On tag push the track defaults to 'internal'.
-      #    On manual dispatch the chosen track is used.
-      - name: Upload AAB to Play Store
-        uses: r0adkll/upload-google-play@v1
+      # ── 9. Fastlane → upload to Play Store ───────────────────────────────────
+      - name: Upload to Play Store via Fastlane
+        working-directory: android
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: bundle exec fastlane deploy track:${{ github.event.inputs.track || 'internal' }}
+
+      # ── 10. Save AAB as GitHub artifact ──────────────────────────────────────
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
         with:
-          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.hallaqak.app
-          releaseFiles: build/app/outputs/bundle/release/*.aab
-          track: ${{ github.event.inputs.track || 'internal' }}
-          status: completed
-          changesNotSentForReview: false
+          name: app-release-${{ github.ref_name }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30

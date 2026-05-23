@@ -62,12 +62,12 @@ android {
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // Flutter compiles Dart to native ARM code — R8/ProGuard only
+            // touches the thin Java/Kotlin plugin wrappers. Enabling shrinking
+            // strips classes that plugins discover via reflection, which works
+            // locally (debug APK skips R8) but breaks Play Store AAB processing.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

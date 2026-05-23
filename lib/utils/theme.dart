@@ -13,7 +13,92 @@ class AppTheme {
   static const Color danger = Color(0xFFE74C3C);
   static const Color divider = Color(0xFFE8E4DF);
 
+  // ─── Dark colors ─────────────────────────────────────────
+  static const Color darkSurface = Color(0xFF121212);
+  static const Color darkCard    = Color(0xFF1E1E1E);
+  static const Color darkDivider = Color(0xFF2C2C2C);
+
   // ─── Theme Data ──────────────────────────────────────────
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: darkSurface,
+      colorScheme: const ColorScheme.dark(
+        primary: accent,
+        secondary: accent,
+        surface: darkCard,
+        error: danger,
+      ),
+      textTheme: GoogleFonts.cairoTextTheme().apply(
+        bodyColor: Colors.white,
+        displayColor: Colors.white,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: darkCard,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: GoogleFonts.cairo(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: accent,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: GoogleFonts.cairo(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: danger,
+          side: const BorderSide(color: danger),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: GoogleFonts.cairo(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: darkCard,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: darkDivider),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: darkDivider),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: accent, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: danger),
+        ),
+        hintStyle: GoogleFonts.cairo(color: Colors.white38, fontSize: 14),
+        labelStyle: GoogleFonts.cairo(color: Colors.white38, fontSize: 14),
+      ),
+      cardTheme: CardThemeData(
+        color: darkCard,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: darkDivider, width: 1),
+        ),
+        margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+      ),
+    );
+  }
+
   static ThemeData get theme {
     return ThemeData(
       useMaterial3: true,

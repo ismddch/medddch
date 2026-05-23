@@ -1,0 +1,29 @@
+default_platform(:android)
+
+platform :android do
+
+  desc "Build signed AAB and upload to Google Play (internal track by default)"
+  lane :deploy do |options|
+    track = options[:track] || "internal"
+
+    # ── Build the release App Bundle ────────────────────────────────────────────
+    # flutter build is already done by the CI step before fastlane runs,
+    # so we only need to call gradle here for signing validation.
+    # The AAB produced by `flutter build appbundle --release` is used directly.
+
+    # ── Upload to Google Play ────────────────────────────────────────────────────
+    upload_to_play_store(
+      track:                      track,
+      aab:                        "../build/app/outputs/bundle/release/app-release.aab",
+      json_key_data:              ENV["GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"],
+      skip_upload_apk:            true,
+      skip_upload_metadata:       true,
+      skip_upload_changelogs:     true,
+      skip_upload_images:         true,
+      skip_upload_screenshots:    true,
+      release_status:             "completed",
+      changes_not_sent_for_review: false
+    )
+  end
+
+end

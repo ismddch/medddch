@@ -6,6 +6,8 @@ import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
+import 'my_booking_screen.dart';
+import 'profile_screen.dart';
 import 'queue_details_screen.dart';
 
 class AllBarbersScreen extends StatefulWidget {
@@ -21,6 +23,8 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
   Set<String> _savedIds = {};
   bool _loading = true;
   RealtimeChannel? _subscription;
+  String _searchQuery = '';
+  String? _selectedLocation;
 
   @override
   void initState() {
@@ -159,31 +163,60 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
     try { return _barbers.firstWhere((b) => b.id == _likedBarberId); } catch (_) { return null; }
   }
 
+  List<BarberModel> get _filtered {
+    var list = _barbers;
+    if (_selectedLocation != null) {
+      list = list.where((b) => b.location == _selectedLocation).toList();
+    }
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      list = list.where((b) => b.name.toLowerCase().contains(q)).toList();
+    }
+    return list;
+  }
+
+  List<String> get _locations {
+    final locs = _barbers.map((b) => b.location).whereType<String>().toSet().toList();
+    locs.sort();
+    return locs;
+  }
+
+
   @override
   Widget build(BuildContext context) {
-    final fav  = _fav;
-    final top3 = _barbers.take(3).toList();
-    final rest = _barbers.length > 3 ? _barbers.sublist(3) : <BarberModel>[];
+    final fav      = _fav;
+    final filtered = _filtered;
+    final locs     = _locations;
+    final top3     = filtered.take(3).toList();
+    final rest     = filtered.length > 3 ? filtered.sublist(3) : <BarberModel>[];
+    final isEmpty  = !_loading && filtered.isEmpty;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F5F0),
       body: RefreshIndicator(
         onRefresh: _load,
         child: CustomScrollView(
           slivers: [
             // ─── AppBar ───────────────────────────────────────────
             SliverAppBar(
-              backgroundColor: Colors.white,
               elevation: 0,
               shadowColor: Colors.transparent,
               surfaceTintColor: Colors.transparent,
               floating: true,
               centerTitle: true,
-              leading: const Icon(Icons.menu_rounded, color: AppTheme.primary),
-              actions: const [
-                Padding(
-                  padding: EdgeInsets.only(left: 16),
-                  child: Icon(Icons.person_outline_rounded, color: AppTheme.primary),
+              leading: IconButton(
+                icon: const Icon(Icons.calendar_month_rounded),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyBookingScreen()),
+                ),
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.person_outline_rounded),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                  ),
                 ),
               ],
               title: Column(
@@ -196,7 +229,7 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                       const SizedBox(width: 5),
                       Text('حلاقك',
                           style: GoogleFonts.cairo(
-                              fontSize: 20, fontWeight: FontWeight.w900, color: AppTheme.primary)),
+                              fontSize: 20, fontWeight: FontWeight.w900)),
                     ],
                   ),
                   Text('الرئيسية',
@@ -209,10 +242,58 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
               ),
             ),
 
+            // ─── Search bar ───────────────────────────────────────
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              sliver: SliverToBoxAdapter(
+                child: TextField(
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'ابحث عن حلاق...',
+                    prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.accent),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear_rounded, size: 18),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ),
+
+            // ─── Location filter chips ─────────────────────────────
+            if (locs.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                sliver: SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _LocationChip(
+                          label: 'الكل',
+                          selected: _selectedLocation == null,
+                          onTap: () => setState(() => _selectedLocation = null),
+                        ),
+                        ...locs.map((loc) => _LocationChip(
+                          label: loc,
+                          selected: _selectedLocation == loc,
+                          onTap: () => setState(() =>
+                              _selectedLocation = _selectedLocation == loc ? null : loc),
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
             // ─── Loading / Empty / Content ────────────────────────
             if (_loading)
               const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
-            else if (_barbers.isEmpty)
+            else if (isEmpty)
               SliverFillRemaining(
                 child: Center(
                   child: Column(
@@ -221,19 +302,13 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                       Icon(Icons.content_cut_outlined, size: 64,
                           color: AppTheme.textMuted.withValues(alpha: 0.25)),
                       const SizedBox(height: 14),
-                      Text('لا يوجد حلاقون بعد',
+                      Text(_barbers.isEmpty ? 'لا يوجد حلاقون بعد' : 'لا توجد نتائج',
                           style: GoogleFonts.cairo(fontSize: 15, color: AppTheme.textMuted)),
                     ],
                   ),
                 ),
               )
             else ...[
-              // ─── Vote Banner ────────────────────────────────────
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                sliver: SliverToBoxAdapter(child: _VoteBanner(favName: fav?.name)),
-              ),
-
               // ─── Top rated section ───────────────────────────────
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
@@ -276,6 +351,7 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                         isLiked: _likedBarberId == rest[i].id,
                         isSaved: _savedIds.contains(rest[i].id),
                         onTap: () => _showDetails(rest[i], i + 4),
+                        onNameTap: () => _showDetails(rest[i], i + 4),
                         onSave: () => _toggleSave(rest[i]),
                         onBook: () => _book(rest[i]),
                       ),
@@ -323,48 +399,38 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
   }
 }
 
-// ─── Vote Banner ──────────────────────────────────────────────
-class _VoteBanner extends StatelessWidget {
-  final String? favName;
-  const _VoteBanner({required this.favName});
+// ─── Location Filter Chip ─────────────────────────────────────
+class _LocationChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _LocationChip({required this.label, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final voted = favName != null;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: voted ? Colors.red.withValues(alpha: 0.05) : AppTheme.accent.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: voted ? Colors.red.withValues(alpha: 0.2) : AppTheme.accent.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(voted ? Icons.how_to_vote_rounded : Icons.info_outline_rounded,
-              color: voted ? Colors.red : AppTheme.accent, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: voted
-                ? RichText(
-                    text: TextSpan(
-                      style: GoogleFonts.cairo(fontSize: 12, color: AppTheme.primary),
-                      children: [
-                        const TextSpan(text: 'صوتك الحالي: '),
-                        TextSpan(
-                          text: favName,
-                          style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.red),
-                        ),
-                        const TextSpan(text: ' — يمكنك تغييره في أي وقت'),
-                      ],
-                    ),
-                  )
-                : Text('اضغط ❤️ لتختار حلاقك المفضل — صوت واحد لكل عميل',
-                    style: GoogleFonts.cairo(
-                        fontSize: 12, color: AppTheme.primary.withValues(alpha: 0.7))),
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? AppTheme.accent : AppTheme.divider,
+            ),
           ),
-        ],
+          child: Text(
+            label,
+            style: GoogleFonts.cairo(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : AppTheme.textMuted,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -543,12 +609,6 @@ class _BigCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // Crown for #1
-              if (rank == 1)
-                const Positioned(
-                  top: 8, left: 0, right: 0,
-                  child: Center(child: Text('👑', style: TextStyle(fontSize: 26))),
-                ),
               // Rank badge
               Positioned(
                 top: 10, right: 10,
@@ -583,10 +643,13 @@ class _BigCard extends StatelessWidget {
               children: [
                 _stars(rank, 14),
                 const SizedBox(height: 6),
-                Text(barber.name,
-                    style: GoogleFonts.cairo(
-                        fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                GestureDetector(
+                  onTap: onDetails,
+                  child: Text(barber.name,
+                      style: GoogleFonts.cairo(
+                          fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
                 if (barber.shopName != null) ...[
                   const SizedBox(height: 2),
                   Row(children: [
@@ -774,10 +837,13 @@ class _SmallCard extends StatelessWidget {
               children: [
                 _stars(rank, 12),
                 const SizedBox(height: 4),
-                Text(barber.name,
-                    style: GoogleFonts.cairo(
-                        fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                GestureDetector(
+                  onTap: onDetails,
+                  child: Text(barber.name,
+                      style: GoogleFonts.cairo(
+                          fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
                 if (barber.shopName != null)
                   Text(barber.shopName!,
                       style: GoogleFonts.cairo(fontSize: 11, color: AppTheme.textMuted),
@@ -850,13 +916,15 @@ class _GridCard extends StatelessWidget {
   final bool isLiked;
   final bool isSaved;
   final VoidCallback onTap;
+  final VoidCallback onNameTap;
   final VoidCallback onSave;
   final VoidCallback onBook;
 
   const _GridCard({
     required this.barber, required this.rank,
     required this.isLiked, required this.isSaved,
-    required this.onTap, required this.onSave, required this.onBook,
+    required this.onTap, required this.onNameTap,
+    required this.onSave, required this.onBook,
   });
 
   @override
@@ -931,10 +999,13 @@ class _GridCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(barber.name,
-                    style: GoogleFonts.cairo(
-                        fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.primary),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                GestureDetector(
+                  onTap: onNameTap,
+                  child: Text(barber.name,
+                      style: GoogleFonts.cairo(
+                          fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.primary),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
                 if (barber.shopName != null)
                   Text(barber.shopName!,
                       style: GoogleFonts.cairo(fontSize: 11, color: AppTheme.textMuted),

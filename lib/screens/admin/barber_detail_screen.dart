@@ -64,9 +64,8 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
       await _service.addBarber(
         widget.shop.id,
         result['name']!,
-        imageUrl: result['image_url']?.isEmpty == true
-            ? null
-            : result['image_url'],
+        imageUrl: result['image_url']?.isEmpty == true ? null : result['image_url'],
+        location: result['location']?.isEmpty == true ? null : result['location'],
       );
       _loadData();
     }
@@ -81,9 +80,8 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
       await _service.updateBarber(
         barber.id,
         name: result['name']!,
-        imageUrl: result['image_url']?.isEmpty == true
-            ? null
-            : result['image_url'],
+        imageUrl: result['image_url']?.isEmpty == true ? null : result['image_url'],
+        location: result['location']?.isEmpty == true ? null : result['location'],
       );
       _loadData();
     }
@@ -1081,6 +1079,7 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
   final SupabaseService _service = SupabaseService();
   final _picker = ImagePicker();
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _locationCtrl;
   final _formKey = GlobalKey<FormState>();
 
   Uint8List? _pickedBytes;
@@ -1092,12 +1091,14 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.barber?.name ?? '');
+    _locationCtrl = TextEditingController(text: widget.barber?.location ?? '');
     _existingImageUrl = widget.barber?.imageUrl;
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _locationCtrl.dispose();
     super.dispose();
   }
 
@@ -1152,6 +1153,7 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
       Navigator.pop(context, {
         'name': _nameCtrl.text.trim(),
         'image_url': imageUrl ?? '',
+        'location': _locationCtrl.text.trim(),
       });
     }
   }
@@ -1280,6 +1282,18 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
                       (v == null || v.trim().isEmpty)
                           ? 'أدخل اسم الحلاق'
                           : null,
+                ),
+                const SizedBox(height: 12),
+                // ─── Location Field ─────────────
+                TextFormField(
+                  controller: _locationCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'الموقع / المنطقة (مثال: الرياض)',
+                    prefixIcon: Icon(Icons.location_on_outlined,
+                        color: AppTheme.accent),
+                    contentPadding: EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
                 ),
               ],
             ),

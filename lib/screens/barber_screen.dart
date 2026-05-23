@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
@@ -52,8 +53,9 @@ class _BarberScreenState extends State<BarberScreen> {
   void initState() {
     super.initState();
     _loadData();
-    _subscription    = _service.subscribeToQueues(_loadData);
-    _paymentChannel  = _service.subscribeToPaymentsForBarber(_loadPaymentRequests);
+    _subscription   = _service.subscribeToQueues(_loadData);
+    final barberId  = context.read<AuthProvider>().user?.barberId ?? '';
+    _paymentChannel = _service.subscribeToPaymentsForBarber(barberId, _loadPaymentRequests);
   }
 
   @override
@@ -216,9 +218,14 @@ class _BarberScreenState extends State<BarberScreen> {
   Future<void> _loadPaymentRequests() async {
     if (_barber == null || !mounted) return;
     try {
-      final requests =
-          await _service.getPendingPaymentsForBarber(_barber!.id);
-      if (mounted) setState(() => _paymentRequests = requests);
+      final requests = await _service.getPendingPaymentsForBarber(_barber!.id);
+      if (!mounted) return;
+      final previousCount = _paymentRequests.length;
+      setState(() => _paymentRequests = requests);
+      if (requests.length > previousCount) {
+        final newest = requests.last;
+        NotificationService.notifyBarberNewPayment(newest.userName ?? '');
+      }
     } catch (_) {}
   }
 
@@ -1195,6 +1202,52 @@ class _BarberScreenState extends State<BarberScreen> {
                         fontSize: 10, color: Colors.white38),
                     textAlign: TextAlign.center),
               ],
+            ],
+          ),
+        ),
+
+        // ── Toolbar: count + refresh button ──────────
+        Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Text(
+                'الطلبات المعلقة',
+                style: GoogleFonts.cairo(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primary,
+                ),
+              ),
+              if (_paymentRequests.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_paymentRequests.length}',
+                    style: GoogleFonts.cairo(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.accent,
+                    ),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _loadPaymentRequests,
+                icon: const Icon(Icons.refresh_rounded, size: 17),
+                label: Text('تحديث',
+                    style: GoogleFonts.cairo(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+              ),
             ],
           ),
         ),

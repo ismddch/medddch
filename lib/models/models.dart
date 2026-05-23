@@ -64,6 +64,7 @@ class BarberModel {
   int likeCount;            // total likes from barber_likes table
   String? shopName;         // denormalised shop name for ranking screens
   String? paymentNumber;    // account/wallet number customers send money to
+  String? location;         // city/area set by admin for filtering
 
   BarberModel({
     required this.id,
@@ -77,6 +78,7 @@ class BarberModel {
     this.likeCount = 0,
     this.shopName,
     this.paymentNumber,
+    this.location,
   });
 
   factory BarberModel.fromMap(Map<String, dynamic> map) {
@@ -100,6 +102,7 @@ class BarberModel {
       likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
       shopName:      shop?['name'],
       paymentNumber: map['payment_number'],
+      location:      map['location'],
     );
   }
 }

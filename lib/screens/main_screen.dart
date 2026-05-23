@@ -3,8 +3,8 @@ import '../utils/theme.dart';
 import 'shops_list_screen.dart';
 import 'all_barbers_screen.dart';
 import 'my_barber_screen.dart';
+import 'my_booking_screen.dart';
 import 'products_screen.dart';
-import 'profile_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -19,9 +19,9 @@ class _MainScreenState extends State<MainScreen> {
   final _screens = const [
     AllBarbersScreen(),
     MyBarberScreen(),
+    MyBookingScreen(),
     ShopsListScreen(),
     ProductsScreen(),
-    ProfileScreen(),
   ];
 
   @override
@@ -48,6 +48,11 @@ class _MainScreenState extends State<MainScreen> {
             label: 'حلاقي',
           ),
           NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
+            label: 'حجزي',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.storefront_outlined),
             selectedIcon: Icon(Icons.storefront, color: AppTheme.accent),
             label: 'الصالونات',
@@ -56,11 +61,6 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.shopping_bag_outlined),
             selectedIcon: Icon(Icons.shopping_bag, color: AppTheme.accent),
             label: 'المنتجات',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            selectedIcon: Icon(Icons.person_rounded, color: AppTheme.accent),
-            label: 'الملف الشخصي',
           ),
         ],
       ),
