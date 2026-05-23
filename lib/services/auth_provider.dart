@@ -110,7 +110,8 @@ class AuthProvider extends ChangeNotifier {
   Future<ShopModel> changeShopCode(String newCode) async {
     if (_user == null) throw Exception('المستخدم غير مسجل الدخول');
     final shop = await _service.changeShopCode(_user!.id, newCode);
-    _user = _user!.copyWith(barberId: shop.id);
+    // After restructure: barberId on customers is no longer linked to shops.
+    // We just notify listeners with the shop result for UI feedback.
     notifyListeners();
     return shop;
   }

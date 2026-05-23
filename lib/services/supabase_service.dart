@@ -131,10 +131,9 @@ class SupabaseService {
     if (shopRes == null) throw Exception('رمز الصالون غير صحيح');
     final shop = ShopModel.fromMap(shopRes);
 
-    await _client
-        .from('users')
-        .update({'barber_id': shop.id})
-        .eq('id', userId);
+    // NOTE: After restructure, users.barber_id references barbers (staff),
+    // not shops. Customers are no longer linked to a shop via barber_id.
+    // We only record the history and return the shop info.
 
     await _client.from('barber_code_history').insert({
       'user_id': userId,
