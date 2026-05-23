@@ -1,12 +1,56 @@
-name: iOS Deploy to App Store
+name: Deploy iOS to App Store
 
+# ─── Triggers ───────────────────────────────────────────────────────────────
+# • Push a tag like v1.0.3+17 → auto-upload to TestFlight.
+# • Go to Actions → "Deploy iOS to App Store" → Run workflow for a manual run.
 on:
-  push:
-    branches: [main, master]
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# ─── Required GitHub Secrets ────────────────────────────────────────────────
+# Add these in: Settings → Secrets and variables → Actions → New repository secret
+#
+# DISTRIBUTION_CERTIFICATE_P12_BASE64
+#   Apple Distribution certificate exported from Keychain as .p12, then base64-encoded.
+#   On macOS:  base64 -i certificate.p12 | pbcopy
+#
+# CERTIFICATE_PASSWORD
+#   The password you set when exporting the .p12 from Keychain Access.
+#
+# KEYCHAIN_PASSWORD
+#   Any strong password — used only for the temporary CI keychain.
+#
+# PROVISIONING_PROFILE_BASE64
+#   The App Store distribution provisioning profile (.mobileprovision), base64-encoded.
+#   Download from: developer.apple.com → Certificates, IDs & Profiles → Profiles
+#   On macOS:  base64 -i profile.mobileprovision | pbcopy
+#
+# PROVISIONING_PROFILE_NAME
+#   The exact display name of the provisioning profile (as shown in Apple Developer portal).
+#
+# APP_IDENTIFIER
+#   Bundle ID: com.hallaqak.app
+#
+# TEAM_ID
+#   Your 10-character Apple Developer Team ID (found at developer.apple.com → Membership).
+#
+# APPLE_ID_EMAIL
+#   The Apple ID email used to log into App Store Connect.
+#
+# APPSTORE_KEY_ID
+#   App Store Connect API Key ID (8–10 uppercase chars, e.g. ABC123DEFG).
+#   Create at: App Store Connect → Users → Integrations → Keys → Generate API Key
+#
+# APPSTORE_ISSUER_ID
+#   Issuer ID shown on the same Keys page (UUID format).
+#
+# APPSTORE_PRIVATE_KEY
+#   Raw content of the downloaded AuthKey_XXXXXX.p8 file (the full text including headers).
 
 jobs:
-  deploy-ios:
+  deploy:
     name: Build & Upload to TestFlight
     runs-on: macos-latest
     timeout-minutes: 90
@@ -16,40 +60,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Xcode 26 — App Store requires iOS 26 SDK (Xcode 26) or later ──────
+      # ── 2. Xcode (latest stable — required for App Store submission) ──────────
       - name: Select Xcode version
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: 'latest-stable'
 
-      # ── 3. Flutter ───────────────────────────────────────────────────────────
+      # ── 3. Flutter (pinned to match local SDK) ────────────────────────────────
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.38.5'
           channel: stable
           cache: true
 
-      # ── 4. Ruby + Gems (includes bundle install for ios/Gemfile) ─────────────
-      #    bundler-cache: true automatically runs `bundle install` and caches gems.
-      #    working-directory points to the Gemfile that installs fastlane + cocoapods.
-      - name: Setup Ruby & install gems
+      # ── 4. Ruby + Fastlane + CocoaPods ───────────────────────────────────────
+      #    Does NOT use bundler-cache because Gemfile.lock may not be committed.
+      #    bundle install is fast enough on macos-latest runners.
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
           working-directory: ios
 
-      # ── 5. Dart packages ─────────────────────────────────────────────────────
+      - name: Install gems (Fastlane + CocoaPods)
+        working-directory: ios
+        run: bundle install --jobs 4 --retry 3
+
+      # ── 5. Dart packages ──────────────────────────────────────────────────────
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── 6. CocoaPods (must run AFTER flutter pub get generates symlinks) ──────
+      # ── 6. CocoaPods (must run AFTER flutter pub get generates plugin symlinks) ─
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: bundle exec pod install --repo-update
 
       # ── 7. Flutter build (no codesign — Fastlane signs the archive) ──────────
-      - name: Build Flutter iOS release
+      - name: Build Flutter iOS release (no codesign)
         run: flutter build ios --release --no-codesign
 
       # ── 8. Keychain + distribution certificate ───────────────────────────────
@@ -64,24 +112,22 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
 
-          echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
-          security import certificate.p12 \
+          echo "$CERTIFICATE_BASE64" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
             -k build.keychain \
             -P "$CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
           security set-key-partition-list \
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          rm certificate.p12
+          rm /tmp/certificate.p12
 
       # ── 9. Provisioning profile (stored by UUID so Xcode finds it) ───────────
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
         run: |
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode \
-            > /tmp/profile.mobileprovision
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > /tmp/profile.mobileprovision
 
-          # Extract UUID from the signed plist embedded in the profile.
           security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /tmp/profile.plist)
 
@@ -91,13 +137,14 @@ jobs:
 
           rm /tmp/profile.mobileprovision /tmp/profile.plist
 
-      # ── 10. Write .p8 key to a temp file (avoids null-byte errors from env vars) ─
+      # ── 10. App Store Connect API key ─────────────────────────────────────────
+      #    Write the raw .p8 content to a temp file (avoids base64/newline issues).
       - name: Write App Store Connect API key
         env:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
 
-      # ── 11. Fastlane: archive + sign + upload to TestFlight ──────────────────
+      # ── 11. Fastlane: archive, sign, upload to TestFlight ─────────────────────
       - name: Deploy via Fastlane
         working-directory: ios
         env:
@@ -108,3 +155,10 @@ jobs:
           TEAM_ID:                   ${{ secrets.TEAM_ID }}
           PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
         run: bundle exec fastlane beta
+
+      # ── 12. Cleanup sensitive files ────────────────────────────────────────────
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f /tmp/AuthKey.p8
+          security delete-keychain build.keychain 2>/dev/null || true

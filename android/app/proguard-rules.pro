@@ -32,3 +32,24 @@
 
 # image_picker
 -keep class io.flutter.plugins.imagepicker.** { *; }
+
+# Firebase / FCM
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# Shared Preferences
+-keep class io.flutter.plugins.sharedpreferences.** { *; }
+
+# Flutter Local Notifications
+-keep class com.dexterous.** { *; }
+
+# Keep all model classes (used with JSON serialisation)
+-keepclassmembers class ** {
+    public <init>(...);
+}
+
+# Prevent stripping R8 rules for reflection
+-keepattributes Signature
+-keepattributes *Annotation*

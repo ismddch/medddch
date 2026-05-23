@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../utils/theme.dart';
-import 'chairs_screen.dart';
+import 'shops_list_screen.dart';
+import 'all_barbers_screen.dart';
+import 'my_barber_screen.dart';
 import 'products_screen.dart';
 import 'profile_screen.dart';
 
@@ -15,7 +17,9 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
   final _screens = const [
-    ChairsScreen(),
+    AllBarbersScreen(),
+    MyBarberScreen(),
+    ShopsListScreen(),
     ProductsScreen(),
     ProfileScreen(),
   ];
@@ -30,13 +34,23 @@ class _MainScreenState extends State<MainScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         backgroundColor: AppTheme.card,
-        indicatorColor: AppTheme.accent.withOpacity(0.15),
+        indicatorColor: AppTheme.accent.withValues(alpha: 0.15),
         onDestinationSelected: (i) => setState(() => _currentIndex = i),
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.chair_outlined),
-            selectedIcon: Icon(Icons.chair, color: AppTheme.accent),
-            label: 'الكراسي',
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded, color: AppTheme.accent),
+            label: 'الرئيسية',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bookmark_outline_rounded),
+            selectedIcon: Icon(Icons.bookmark_rounded, color: AppTheme.accent),
+            label: 'حلاقي',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.storefront_outlined),
+            selectedIcon: Icon(Icons.storefront, color: AppTheme.accent),
+            label: 'الصالونات',
           ),
           NavigationDestination(
             icon: Icon(Icons.shopping_bag_outlined),

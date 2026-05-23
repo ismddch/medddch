@@ -8,6 +8,7 @@ import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
+import 'privacy_policy_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -23,9 +24,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _saving = false;
   bool _uploadingImage = false;
 
-  BarberModel? _currentBarber;
-  List<BarberCodeHistoryModel> _barberHistory = [];
-  bool _loadingBarber = false;
+  ShopModel? _currentShop;
+  List<ShopCodeHistoryModel> _shopHistory = [];
+  bool _loadingShop = false;
 
   @override
   void initState() {
@@ -33,7 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = context.read<AuthProvider>().user;
     _nameCtrl.text = user?.name ?? '';
     if (user != null && !user.isBarber && !user.isAdmin) {
-      _loadBarberInfo(user);
+      _loadShopInfo(user);
     }
   }
 
@@ -43,21 +44,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-  Future<void> _loadBarberInfo(UserModel user) async {
-    setState(() => _loadingBarber = true);
+  Future<void> _loadShopInfo(UserModel user) async {
+    setState(() => _loadingShop = true);
     try {
-      final barber = user.barberId != null
-          ? await _service.getBarberById(user.barberId!)
+      final shop = user.barberId != null
+          ? await _service.getShopById(user.barberId!)
           : null;
-      final history = await _service.getBarberCodeHistory(user.id);
+      final history = await _service.getShopCodeHistory(user.id);
       if (mounted) {
         setState(() {
-          _currentBarber = barber;
-          _barberHistory = history;
+          _currentShop = shop;
+          _shopHistory = history;
         });
       }
     } finally {
-      if (mounted) setState(() => _loadingBarber = false);
+      if (mounted) setState(() => _loadingShop = false);
     }
   }
 
@@ -150,7 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _showChangeBarberDialog() async {
+  Future<void> _showChangeShopDialog() async {
     final codeCtrl = TextEditingController();
     bool changing = false;
 
@@ -161,13 +162,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (ctx, setDialogState) => AlertDialog(
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('تغيير رمز الحلاق',
+          title: Text('تغيير رمز الصالون',
               style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'أدخل الرمز الجديد للحلاق الذي تريد الانتساب إليه',
+                'أدخل الرمز الجديد للصالون الذي تريد الانتساب إليه',
                 style: GoogleFonts.cairo(
                     fontSize: 13, color: AppTheme.textMuted),
               ),
@@ -176,7 +177,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 controller: codeCtrl,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
-                  labelText: 'رمز الحلاق',
+                  labelText: 'رمز الصالون',
                   labelStyle: GoogleFonts.cairo(),
                   prefixIcon: const Icon(Icons.qr_code_rounded,
                       color: AppTheme.accent),
@@ -190,10 +191,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             TextButton(
-              onPressed:
-                  changing ? null : () => Navigator.pop(ctx),
-              child:
-                  Text('إلغاء', style: GoogleFonts.cairo()),
+              onPressed: changing ? null : () => Navigator.pop(ctx),
+              child: Text('إلغاء', style: GoogleFonts.cairo()),
             ),
             ElevatedButton(
               onPressed: changing
@@ -203,19 +202,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       if (code.isEmpty) return;
                       setDialogState(() => changing = true);
                       try {
-                        final barber = await context
+                        final shop = await context
                             .read<AuthProvider>()
-                            .changeBarberCode(code);
+                            .changeShopCode(code);
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (mounted) {
                           setState(() {
-                            _currentBarber = barber;
+                            _currentShop = shop;
                           });
                           _reloadHistory();
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
-                                'تم الانتساب إلى ${barber.name} بنجاح',
+                                'تم الانتساب إلى ${shop.name} بنجاح',
                                 style: GoogleFonts.cairo(),
                               ),
                               backgroundColor: AppTheme.success,
@@ -231,9 +230,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             SnackBar(
                               content: Text(
-                                e
-                                    .toString()
-                                    .replaceAll('Exception: ', ''),
+                                e.toString().replaceAll('Exception: ', ''),
                                 style: GoogleFonts.cairo(),
                               ),
                               backgroundColor: AppTheme.danger,
@@ -267,8 +264,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _reloadHistory() async {
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
-    final history = await _service.getBarberCodeHistory(user.id);
-    if (mounted) setState(() => _barberHistory = history);
+    final history = await _service.getShopCodeHistory(user.id);
+    if (mounted) setState(() => _shopHistory = history);
   }
 
   void _logout() {
@@ -453,7 +450,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
 
-                // ─── Barber Section (customers only) ─────────
+                // ─── Shop Section (customers only) ────────────
                 if (isCustomer) ...[
                   const SizedBox(height: 32),
                   const Divider(),
@@ -461,28 +458,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      'الحلاق المرتبط',
+                      'الصالون المرتبط',
                       style: GoogleFonts.cairo(
                           fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (_loadingBarber)
+                  if (_loadingShop)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Center(child: CircularProgressIndicator()),
                     )
                   else
-                    _CurrentBarberCard(barber: _currentBarber),
+                    _CurrentShopCard(shop: _currentShop),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _showChangeBarberDialog,
+                      onPressed: _showChangeShopDialog,
                       icon: const Icon(Icons.qr_code_rounded,
                           color: AppTheme.accent),
                       label: Text(
-                        'تغيير رمز الحلاق',
+                        'تغيير رمز الصالون',
                         style: GoogleFonts.cairo(
                             fontWeight: FontWeight.w600,
                             color: AppTheme.accent),
@@ -493,12 +490,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-                  if (_barberHistory.isNotEmpty) ...[
+                  if (_shopHistory.isNotEmpty) ...[
                     const SizedBox(height: 24),
                     Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        'سجل الحلاقين المستخدمين',
+                        'سجل الصالونات المستخدمة',
                         style: GoogleFonts.cairo(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -506,14 +503,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    ...(_barberHistory
-                        .map((h) => _BarberHistoryTile(entry: h))),
+                    ...(_shopHistory.map((h) => _ShopHistoryTile(entry: h))),
                   ],
                 ],
 
                 const SizedBox(height: 32),
                 const Divider(),
                 const SizedBox(height: 16),
+
+                // ─── Privacy Policy ───────────────────────────
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const PrivacyPolicyScreen()),
+                    ),
+                    child: Text(
+                      'سياسة الخصوصية',
+                      style: GoogleFonts.cairo(
+                        color: AppTheme.textMuted,
+                        fontSize: 13,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
 
                 // ─── Logout ──────────────────────────────────
                 SizedBox(
@@ -561,14 +577,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// ─── Current Barber Card ──────────────────────────────────
-class _CurrentBarberCard extends StatelessWidget {
-  final BarberModel? barber;
-  const _CurrentBarberCard({required this.barber});
+// ─── Current Shop Card ────────────────────────────────────
+class _CurrentShopCard extends StatelessWidget {
+  final ShopModel? shop;
+  const _CurrentShopCard({required this.shop});
 
   @override
   Widget build(BuildContext context) {
-    if (barber == null) {
+    if (shop == null) {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -577,10 +593,10 @@ class _CurrentBarberCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.content_cut_rounded,
+            const Icon(Icons.store_outlined,
                 color: AppTheme.textMuted, size: 28),
             const SizedBox(width: 12),
-            Text('لا يوجد حلاق مرتبط',
+            Text('لا يوجد صالون مرتبط',
                 style: GoogleFonts.cairo(color: AppTheme.textMuted)),
           ],
         ),
@@ -599,11 +615,11 @@ class _CurrentBarberCard extends StatelessWidget {
           CircleAvatar(
             radius: 26,
             backgroundColor: AppTheme.accent.withOpacity(0.15),
-            backgroundImage: barber!.imageUrl != null
-                ? NetworkImage(barber!.imageUrl!)
+            backgroundImage: shop!.imageUrl != null
+                ? NetworkImage(shop!.imageUrl!)
                 : null,
-            child: barber!.imageUrl == null
-                ? const Icon(Icons.content_cut_rounded,
+            child: shop!.imageUrl == null
+                ? const Icon(Icons.store_rounded,
                     color: AppTheme.accent, size: 22)
                 : null,
           ),
@@ -613,13 +629,13 @@ class _CurrentBarberCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  barber!.name,
+                  shop!.name,
                   style: GoogleFonts.cairo(
                       fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'الرمز: ${barber!.code}',
+                  'الرمز: ${shop!.code}',
                   style: GoogleFonts.cairo(
                       color: AppTheme.textMuted,
                       fontSize: 13,
@@ -649,10 +665,10 @@ class _CurrentBarberCard extends StatelessWidget {
   }
 }
 
-// ─── Barber History Tile ──────────────────────────────────
-class _BarberHistoryTile extends StatelessWidget {
-  final BarberCodeHistoryModel entry;
-  const _BarberHistoryTile({required this.entry});
+// ─── Shop History Tile ────────────────────────────────────
+class _ShopHistoryTile extends StatelessWidget {
+  final ShopCodeHistoryModel entry;
+  const _ShopHistoryTile({required this.entry});
 
   @override
   Widget build(BuildContext context) {
@@ -675,7 +691,7 @@ class _BarberHistoryTile extends StatelessWidget {
               color: AppTheme.primary.withOpacity(0.08),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.content_cut_rounded,
+            child: const Icon(Icons.store_rounded,
                 size: 18, color: AppTheme.primary),
           ),
           const SizedBox(width: 12),
@@ -684,13 +700,13 @@ class _BarberHistoryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.barberName,
+                  entry.shopName,
                   style: GoogleFonts.cairo(
                       fontWeight: FontWeight.w600, fontSize: 14),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'الرمز: ${entry.barberCode}',
+                  'الرمز: ${entry.shopCode}',
                   style: GoogleFonts.cairo(
                       color: AppTheme.textMuted,
                       fontSize: 12,

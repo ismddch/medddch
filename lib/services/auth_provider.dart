@@ -17,6 +17,8 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoggedIn => _user != null;
   bool get isBarber => _user?.isBarber ?? false;
   bool get isAdmin => _user?.isAdmin ?? false;
+  bool get isPaymentManager => _user?.isPaymentManager ?? false;
+  bool get isManager => _user?.isManager ?? false;
 
   Future<void> loadSession() async {
     final prefs = await SharedPreferences.getInstance();
@@ -72,7 +74,6 @@ class AuthProvider extends ChangeNotifier {
     required String name,
     required String phone,
     required String password,
-    required String barberCode,
   }) async {
     _isLoading = true;
     _error = null;
@@ -83,7 +84,6 @@ class AuthProvider extends ChangeNotifier {
         name: name,
         phone: phone,
         password: password,
-        barberCode: barberCode,
       );
       _isLoading = false;
       notifyListeners();
@@ -107,12 +107,12 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<BarberModel> changeBarberCode(String newCode) async {
+  Future<ShopModel> changeShopCode(String newCode) async {
     if (_user == null) throw Exception('المستخدم غير مسجل الدخول');
-    final barber = await _service.changeBarberCode(_user!.id, newCode);
-    _user = _user!.copyWith(barberId: barber.id);
+    final shop = await _service.changeShopCode(_user!.id, newCode);
+    _user = _user!.copyWith(barberId: shop.id);
     notifyListeners();
-    return barber;
+    return shop;
   }
 
   Future<void> removeProfileImage() async {

@@ -1,5 +1,6 @@
-// ─── Barber Model ──────────────────────────────────────────
-class BarberModel {
+// ─── Shop Model (was BarberModel) ──────────────────────────────
+// Maps to the `shops` table (previously `barbers`)
+class ShopModel {
   final String id;
   final String name;
   final String code;
@@ -8,8 +9,9 @@ class BarberModel {
   final String? address;
   final bool isActive;
   final bool vipEnabled;
+  final bool prepaymentEnabled;
 
-  BarberModel({
+  ShopModel({
     required this.id,
     required this.name,
     required this.code,
@@ -18,10 +20,11 @@ class BarberModel {
     this.address,
     this.isActive = true,
     this.vipEnabled = false,
+    this.prepaymentEnabled = false,
   });
 
-  factory BarberModel.fromMap(Map<String, dynamic> map) {
-    return BarberModel(
+  factory ShopModel.fromMap(Map<String, dynamic> map) {
+    return ShopModel(
       id: map['id'],
       name: map['name'],
       code: map['code'],
@@ -30,6 +33,7 @@ class BarberModel {
       address: map['address'],
       isActive: map['is_active'] ?? true,
       vipEnabled: map['vip_enabled'] ?? false,
+      prepaymentEnabled: map['prepayment_enabled'] ?? false,
     );
   }
 
@@ -42,10 +46,67 @@ class BarberModel {
         'address': address,
         'is_active': isActive,
         'vip_enabled': vipEnabled,
+        'prepayment_enabled': prepaymentEnabled,
       };
 }
 
-// ─── User Model ────────────────────────────────────────────
+// ─── Barber Model (was ChairModel) ──────────────────────────────
+// Maps to the `barbers` table (previously `chairs`) — individual staff members
+class BarberModel {
+  final String id;
+  final String shopId;      // was barberId — references shops.id
+  final String name;
+  final String? imageUrl;
+  final bool isClosed;
+  final bool isVipLocked;
+  final bool isNormalLocked;
+  int queueLength;
+  int likeCount;            // total likes from barber_likes table
+  String? shopName;         // denormalised shop name for ranking screens
+  String? paymentNumber;    // account/wallet number customers send money to
+
+  BarberModel({
+    required this.id,
+    required this.shopId,
+    required this.name,
+    this.imageUrl,
+    this.isClosed = false,
+    this.isVipLocked = false,
+    this.isNormalLocked = false,
+    this.queueLength = 0,
+    this.likeCount = 0,
+    this.shopName,
+    this.paymentNumber,
+  });
+
+  factory BarberModel.fromMap(Map<String, dynamic> map) {
+    // Support embedded shop join: shops(name)
+    final shop = map['shops'] as Map<String, dynamic>?;
+    // Support embedded count joins: barber_likes(count), queues(count)
+    final likeList  = map['barber_likes'] as List?;
+    final queueList = map['queues']       as List?;
+    final rawLike  = (likeList  != null && likeList.isNotEmpty)  ? likeList[0]['count']  : 0;
+    final rawQueue = (queueList != null && queueList.isNotEmpty) ? queueList[0]['count'] : (map['queue_length'] ?? 0);
+
+    return BarberModel(
+      id: map['id'],
+      shopId: map['shop_id'],
+      name: map['name'],
+      imageUrl: map['image_url'],
+      isClosed: map['is_closed'] ?? false,
+      isVipLocked: map['vip_locked'] ?? false,
+      isNormalLocked: map['normal_locked'] ?? false,
+      queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
+      likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
+      shopName:      shop?['name'],
+      paymentNumber: map['payment_number'],
+    );
+  }
+}
+
+// ─── User Model ────────────────────────────────────────────────
+// barberId for role='barber' now points to barbers.id (individual staff)
+// barberId for role='customer' points to shops.id (their linked shop)
 class UserModel {
   final String id;
   final String name;
@@ -65,6 +126,8 @@ class UserModel {
 
   bool get isBarber => role == 'barber';
   bool get isAdmin => role == 'admin';
+  bool get isPaymentManager => role == 'payment';
+  bool get isManager => role == 'manager';
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
@@ -102,10 +165,11 @@ class UserModel {
       };
 }
 
-// ─── Product Model ─────────────────────────────────────────
+// ─── Product Model ─────────────────────────────────────────────
+// Products belong to shops; shopId (was barberId)
 class ProductModel {
   final String id;
-  final String barberId;
+  final String shopId;      // was barberId — references shops.id
   final String name;
   final String? description;
   final double? price;
@@ -114,7 +178,7 @@ class ProductModel {
 
   ProductModel({
     required this.id,
-    required this.barberId,
+    required this.shopId,
     required this.name,
     this.description,
     this.price,
@@ -125,7 +189,7 @@ class ProductModel {
   factory ProductModel.fromMap(Map<String, dynamic> map) {
     return ProductModel(
       id: map['id'],
-      barberId: map['barber_id'],
+      shopId: map['shop_id'],
       name: map['name'],
       description: map['description'],
       price: map['price'] != null ? (map['price'] as num).toDouble() : null,
@@ -135,102 +199,148 @@ class ProductModel {
   }
 }
 
-// ─── Chair Model ───────────────────────────────────────────
-class ChairModel {
-  final String id;
-  final String barberId;
-  final String name;
-  final String? imageUrl;
-  final bool isClosed;
-  final bool isVipLocked;
-  final bool isNormalLocked;
-  int queueLength;
+// ─── Shop With Barbers (was BarberWithChairs) ──────────────────
+class ShopWithBarbers {
+  final ShopModel shop;
+  final List<BarberModel> barbers;
 
-  ChairModel({
-    required this.id,
-    required this.barberId,
-    required this.name,
-    this.imageUrl,
-    this.isClosed = false,
-    this.isVipLocked = false,
-    this.isNormalLocked = false,
-    this.queueLength = 0,
-  });
-
-  factory ChairModel.fromMap(Map<String, dynamic> map) {
-    return ChairModel(
-      id: map['id'],
-      barberId: map['barber_id'],
-      name: map['name'],
-      imageUrl: map['image_url'],
-      isClosed: map['is_closed'] ?? false,
-      isVipLocked: map['vip_locked'] ?? false,
-      isNormalLocked: map['normal_locked'] ?? false,
-      queueLength: map['queue_length'] ?? 0,
-    );
-  }
+  ShopWithBarbers({required this.shop, required this.barbers});
 }
 
-// ─── Barber Code History Model ────────────────────────────
-class BarberCodeHistoryModel {
+// ─── Shop Code History Model (was BarberCodeHistoryModel) ──────
+class ShopCodeHistoryModel {
   final String id;
-  final String barberId;
-  final String barberName;
-  final String barberCode;
+  final String shopId;
+  final String shopName;
+  final String shopCode;
   final DateTime changedAt;
 
-  BarberCodeHistoryModel({
+  ShopCodeHistoryModel({
     required this.id,
-    required this.barberId,
-    required this.barberName,
-    required this.barberCode,
+    required this.shopId,
+    required this.shopName,
+    required this.shopCode,
     required this.changedAt,
   });
 
-  factory BarberCodeHistoryModel.fromMap(Map<String, dynamic> map) {
-    return BarberCodeHistoryModel(
+  factory ShopCodeHistoryModel.fromMap(Map<String, dynamic> map) {
+    return ShopCodeHistoryModel(
       id: map['id'],
-      barberId: map['barber_id'],
-      barberName: map['barber_name'],
-      barberCode: map['barber_code'],
+      shopId: map['shop_id'],
+      shopName: map['shop_name'],
+      shopCode: map['shop_code'],
       changedAt: DateTime.parse(map['changed_at']),
     );
   }
 }
 
-// ─── Queue Entry Model ────────────────────────────────────
+// ─── Payment Request Model ─────────────────────────────────────
+// barberId = staff barber (individual barber), shopId = shop (salon)
+class PaymentRequestModel {
+  final String id;
+  final String userId;
+  final String barberId;    // references barbers.id (individual staff)
+  final String shopId;      // references shops.id
+  final double? amount;
+  final String walletType;
+  final String photoUrl;
+  final String queueType;
+  final String status;
+  final DateTime createdAt;
+  String? userName;
+  String? userPhone;
+  String? barberName;       // staff barber name
+  String? shopName;         // shop name
+
+  PaymentRequestModel({
+    required this.id,
+    required this.userId,
+    required this.barberId,
+    required this.shopId,
+    this.amount,
+    required this.walletType,
+    required this.photoUrl,
+    this.queueType = 'normal',
+    required this.status,
+    required this.createdAt,
+    this.userName,
+    this.userPhone,
+    this.barberName,
+    this.shopName,
+  });
+
+  bool get isPending  => status == 'pending';
+  bool get isApproved => status == 'approved';
+  bool get isRejected => status == 'rejected';
+
+  factory PaymentRequestModel.fromMap(Map<String, dynamic> map) {
+    final user   = map['users']   as Map<String, dynamic>?;
+    final barber = map['barbers'] as Map<String, dynamic>?;
+    final shop   = map['shops']   as Map<String, dynamic>?;
+    return PaymentRequestModel(
+      id:         map['id'],
+      userId:     map['user_id'],
+      barberId:   map['barber_id'],
+      shopId:     map['shop_id'],
+      amount:     map['amount'] != null ? (map['amount'] as num).toDouble() : null,
+      walletType: map['wallet_type'],
+      photoUrl:   map['photo_url'],
+      queueType:  map['queue_type'] ?? 'normal',
+      status:     map['status'],
+      createdAt:  DateTime.parse(map['created_at']),
+      userName:   user?['name'],
+      userPhone:  user?['phone'],
+      barberName: barber?['name'],
+      shopName:   shop?['name'],
+    );
+  }
+}
+
+// ─── Queue Entry Model ─────────────────────────────────────────
+// barberId (was chairId); joins: barbers → shops
 class QueueEntryModel {
   final String id;
-  final String chairId;
+  final String barberId;    // was chairId — references barbers.id (individual staff)
   final String userId;
   final int position;
   final String queueType;
   final DateTime createdAt;
   String? userName;
   String? userPhone;
+  String? barberName;       // the staff barber's name
+  String? shopName;         // the shop name (from barbers→shops join)
+  bool shopPrepaymentEnabled;
 
   QueueEntryModel({
     required this.id,
-    required this.chairId,
+    required this.barberId,
     required this.userId,
     required this.position,
     this.queueType = 'normal',
     required this.createdAt,
     this.userName,
     this.userPhone,
+    this.barberName,
+    this.shopName,
+    this.shopPrepaymentEnabled = false,
   });
 
   factory QueueEntryModel.fromMap(Map<String, dynamic> map) {
-    final user = map['users'];
+    final user   = map['users']   as Map<String, dynamic>?;
+    final barber = map['barbers'] as Map<String, dynamic>?;
+    final shop   = barber?['shops'] as Map<String, dynamic>?;
     return QueueEntryModel(
-      id: map['id'],
-      chairId: map['chair_id'],
-      userId: map['user_id'],
-      position: map['position'],
-      queueType: map['queue_type'] ?? 'normal',
-      createdAt: DateTime.parse(map['created_at']),
-      userName: user != null ? user['name'] : null,
-      userPhone: user != null ? user['phone'] : null,
+      id:                      map['id'],
+      barberId:                map['barber_id'],
+      userId:                  map['user_id'],
+      position:                map['position'],
+      queueType:               map['queue_type'] ?? 'normal',
+      createdAt:               DateTime.parse(map['created_at']),
+      userName:                user?['name'],
+      userPhone:               user?['phone'],
+      barberName:              barber?['name'],
+      shopName:                shop?['name'],
+      shopPrepaymentEnabled:   shop?['prepayment_enabled'] as bool? ?? false,
     );
   }
 }

@@ -6,10 +6,13 @@ import '../../models/models.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/theme.dart';
 
-class BarberFormScreen extends StatefulWidget {
-  final BarberModel? barber;
+// Form for creating or editing a ShopModel (salon).
+// Previously named BarberFormScreen and used BarberModel — now updated for ShopModel.
 
-  const BarberFormScreen({super.key, this.barber});
+class BarberFormScreen extends StatefulWidget {
+  final ShopModel? shop;
+
+  const BarberFormScreen({super.key, this.shop});
 
   @override
   State<BarberFormScreen> createState() => _BarberFormScreenState();
@@ -36,12 +39,12 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
   @override
   void initState() {
     super.initState();
-    _isEdit = widget.barber != null;
-    _nameCtrl = TextEditingController(text: widget.barber?.name ?? '');
-    _codeCtrl = TextEditingController(text: widget.barber?.code ?? '');
-    _phoneCtrl = TextEditingController(text: widget.barber?.phone ?? '');
-    _addressCtrl = TextEditingController(text: widget.barber?.address ?? '');
-    _imageUrl = widget.barber?.imageUrl;
+    _isEdit = widget.shop != null;
+    _nameCtrl = TextEditingController(text: widget.shop?.name ?? '');
+    _codeCtrl = TextEditingController(text: widget.shop?.code ?? '');
+    _phoneCtrl = TextEditingController(text: widget.shop?.phone ?? '');
+    _addressCtrl = TextEditingController(text: widget.shop?.address ?? '');
+    _imageUrl = widget.shop?.imageUrl;
   }
 
   @override
@@ -67,7 +70,7 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
       setState(() {
         _pickedBytes = bytes;
         _pickedExt = ext.isNotEmpty ? ext : 'jpg';
-        _imageUrl = null; // clear old URL since we have new local image
+        _imageUrl = null;
       });
     }
   }
@@ -91,26 +94,34 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
         finalImageUrl = await _service.uploadImage(
           _pickedBytes!,
           fileExt: _pickedExt ?? 'jpg',
-          folder: 'barbers',
+          folder: 'shops',
         );
         setState(() => _uploading = false);
       }
 
       if (_isEdit) {
-        await _service.updateBarber(
-          barberId: widget.barber!.id,
+        await _service.updateShop(
+          shopId: widget.shop!.id,
           name: _nameCtrl.text.trim(),
           imageUrl: finalImageUrl,
-          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
-          address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty
+              ? null
+              : _phoneCtrl.text.trim(),
+          address: _addressCtrl.text.trim().isEmpty
+              ? null
+              : _addressCtrl.text.trim(),
         );
       } else {
-        await _service.createBarber(
+        await _service.createShop(
           name: _nameCtrl.text.trim(),
           code: _codeCtrl.text.trim().toUpperCase(),
           imageUrl: finalImageUrl,
-          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
-          address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty
+              ? null
+              : _phoneCtrl.text.trim(),
+          address: _addressCtrl.text.trim().isEmpty
+              ? null
+              : _addressCtrl.text.trim(),
         );
       }
 
@@ -123,7 +134,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
             ),
             backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
           ),
         );
         Navigator.pop(context, true);
@@ -132,11 +144,13 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', ''),
+            content: Text(
+                e.toString().replaceAll('Exception: ', ''),
                 style: GoogleFonts.cairo()),
             backgroundColor: AppTheme.danger,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -177,7 +191,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                         height: 130,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: AppTheme.accent, width: 3),
+                          border:
+                              Border.all(color: AppTheme.accent, width: 3),
                           color: AppTheme.primary.withOpacity(0.05),
                           image: hasLocal
                               ? DecorationImage(
@@ -247,14 +262,17 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                 controller: _nameCtrl,
                 decoration: const InputDecoration(
                   hintText: 'مثال: صالون أحمد',
-                  prefixIcon: Icon(Icons.store_rounded, color: AppTheme.accent),
+                  prefixIcon:
+                      Icon(Icons.store_rounded, color: AppTheme.accent),
                 ),
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'أدخل اسم الصالون' : null,
+                    (v == null || v.trim().isEmpty)
+                        ? 'أدخل اسم الصالون'
+                        : null,
               ),
               const SizedBox(height: 20),
 
-              _buildLabel('رمز الحلاق'),
+              _buildLabel('رمز الصالون'),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _codeCtrl,
@@ -262,13 +280,15 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                 textDirection: TextDirection.ltr,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
-                  hintText: 'مثال: BARBER003',
+                  hintText: 'مثال: SHOP003',
                   prefixIcon: const Icon(Icons.qr_code_rounded,
                       color: AppTheme.accent),
-                  fillColor: _isEdit ? AppTheme.surface : Colors.white,
+                  fillColor:
+                      _isEdit ? AppTheme.surface : Colors.white,
                 ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'أدخل رمز الحلاق';
+                  if (v == null || v.trim().isEmpty)
+                    return 'أدخل رمز الصالون';
                   if (v.trim().length < 3) return 'الرمز قصير جداً';
                   return null;
                 },
@@ -290,7 +310,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                 textDirection: TextDirection.ltr,
                 decoration: const InputDecoration(
                   hintText: '05XXXXXXXX',
-                  prefixIcon: Icon(Icons.phone_outlined, color: AppTheme.accent),
+                  prefixIcon: Icon(Icons.phone_outlined,
+                      color: AppTheme.accent),
                 ),
               ),
               const SizedBox(height: 20),
@@ -301,8 +322,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                 controller: _addressCtrl,
                 decoration: const InputDecoration(
                   hintText: 'مثال: شارع الملك فهد، الرياض',
-                  prefixIcon:
-                      Icon(Icons.location_on_outlined, color: AppTheme.accent),
+                  prefixIcon: Icon(Icons.location_on_outlined,
+                      color: AppTheme.accent),
                 ),
               ),
               const SizedBox(height: 36),
@@ -324,11 +345,13 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                               const SizedBox(width: 12),
                               Text('جاري رفع الصورة...',
                                   style: GoogleFonts.cairo(
-                                      fontSize: 14, color: Colors.white70)),
+                                      fontSize: 14,
+                                      color: Colors.white70)),
                             ],
                           ],
                         )
-                      : Text(_isEdit ? 'حفظ التعديلات' : 'إنشاء الصالون'),
+                      : Text(
+                          _isEdit ? 'حفظ التعديلات' : 'إنشاء الصالون'),
                 ),
               ),
               const SizedBox(height: 20),
@@ -342,6 +365,8 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
   Widget _buildLabel(String text) {
     return Text(text,
         style: GoogleFonts.cairo(
-            fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primary));
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.primary));
   }
 }

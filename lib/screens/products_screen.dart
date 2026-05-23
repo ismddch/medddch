@@ -288,7 +288,7 @@ class _AddProductSheetState extends State<_AddProductSheet> {
         );
       }
       await widget.service.addProduct(
-        barberId: widget.barberId,
+        shopId: widget.barberId,
         name: _nameCtrl.text.trim(),
         description: _descCtrl.text.trim().isEmpty
             ? null

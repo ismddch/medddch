@@ -50,8 +50,10 @@
 		<string>whatsapp</string>
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>يستخدم التطبيق معرض الصور لاختيار صورة الملف الشخصي والمنتجات.</string>
+	<string>يستخدم التطبيق معرض الصور لاختيار صورة الملف الشخصي وصور الأعمال وإيصالات الدفع.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>يستخدم التطبيق معرض الصور لاختيار الصور فقط، ولا يحفظ أي صور.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>يستخدم التطبيق الكاميرا لالتقاط صور الملف الشخصي وصور الأعمال وإيصالات الدفع.</string>
 </dict>
 </plist>

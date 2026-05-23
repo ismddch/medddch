@@ -4,9 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_provider.dart';
 import '../utils/theme.dart';
+import 'privacy_policy_screen.dart';
 import 'register_screen.dart';
 import 'main_screen.dart';
 import 'barber_screen.dart';
+import 'manager_screen.dart';
+import 'payment_manager_screen.dart';
 import 'admin/admin_dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -59,6 +62,10 @@ class _LoginScreenState extends State<LoginScreen>
         destination = const AdminDashboardScreen();
       } else if (auth.isBarber) {
         destination = const BarberScreen();
+      } else if (auth.isPaymentManager) {
+        destination = const PaymentManagerScreen();
+      } else if (auth.isManager) {
+        destination = const ManagerScreen();
       } else {
         destination = const MainScreen();
       }
@@ -265,7 +272,25 @@ class _LoginScreenState extends State<LoginScreen>
                             horizontal: 20, vertical: 14),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+
+                    // ─── Privacy Policy ──────────────────
+                    TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const PrivacyPolicyScreen()),
+                      ),
+                      child: Text(
+                        'سياسة الخصوصية',
+                        style: GoogleFonts.cairo(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),

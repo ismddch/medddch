@@ -16,7 +16,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
-  final _codeCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscure = true;
 
@@ -25,7 +24,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _passCtrl.dispose();
-    _codeCtrl.dispose();
     super.dispose();
   }
 
@@ -37,7 +35,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       name: _nameCtrl.text.trim(),
       phone: _phoneCtrl.text.trim(),
       password: _passCtrl.text.trim(),
-      barberCode: _codeCtrl.text.trim().toUpperCase(),
     );
 
     if (success && mounted) {
@@ -186,19 +183,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  // ─── Barber Code ────────────────────
-                  TextFormField(
-                    controller: _codeCtrl,
-                    textDirection: TextDirection.ltr,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: const InputDecoration(
-                      hintText: 'رمز الحلاق',
-                      prefixIcon: Icon(Icons.content_cut_rounded,
-                          color: AppTheme.accent),
-                    ),
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'أدخل رمز الحلاق' : null,
-                  ),
                   const SizedBox(height: 32),
 
                   // ─── Register Button ────────────────

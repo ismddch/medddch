@@ -8,10 +8,14 @@ import '../../utils/theme.dart';
 import '../products_screen.dart';
 import 'barber_form_screen.dart';
 
-class BarberDetailScreen extends StatefulWidget {
-  final BarberModel barber;
+// Detail screen for a ShopModel (salon).
+// Shows staff barbers (BarberModel list), VIP/prepayment toggles,
+// ability to create barber accounts, and products management.
 
-  const BarberDetailScreen({super.key, required this.barber});
+class BarberDetailScreen extends StatefulWidget {
+  final ShopModel shop;
+
+  const BarberDetailScreen({super.key, required this.shop});
 
   @override
   State<BarberDetailScreen> createState() => _BarberDetailScreenState();
@@ -19,9 +23,10 @@ class BarberDetailScreen extends StatefulWidget {
 
 class _BarberDetailScreenState extends State<BarberDetailScreen> {
   final SupabaseService _service = SupabaseService();
-  BarberModel? _barber;
-  List<ChairModel> _chairs = [];
+  ShopModel? _shop;
+  List<BarberModel> _barbers = [];
   List<QueueEntryModel> _queueEntries = [];
+  Set<String> _linkedBarberIds = {};
   bool _loading = true;
 
   @override
@@ -32,14 +37,16 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
 
   Future<void> _loadData() async {
     try {
-      final barber = await _service.getBarberById(widget.barber.id);
-      final chairs = await _service.getChairs(widget.barber.id);
-      final queue = await _service.getBarberQueue(widget.barber.id);
+      final shop = await _service.getShopById(widget.shop.id);
+      final barbers = await _service.getBarbers(widget.shop.id);
+      final queue = await _service.getShopQueue(widget.shop.id);
+      final linkedIds = await _service.getBarberLinkedUserIds(widget.shop.id);
       if (mounted) {
         setState(() {
-          _barber = barber ?? widget.barber;
-          _chairs = chairs;
+          _shop = shop ?? widget.shop;
+          _barbers = barbers;
           _queueEntries = queue;
+          _linkedBarberIds = linkedIds;
           _loading = false;
         });
       }
@@ -48,65 +55,71 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
     }
   }
 
-  Future<void> _addChair() async {
+  Future<void> _addBarber() async {
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => const _ChairFormDialog(),
+      builder: (ctx) => const _BarberFormDialog(),
     );
     if (result != null) {
-      await _service.addChair(
-        widget.barber.id,
+      await _service.addBarber(
+        widget.shop.id,
         result['name']!,
-        imageUrl: result['image_url']?.isEmpty == true ? null : result['image_url'],
+        imageUrl: result['image_url']?.isEmpty == true
+            ? null
+            : result['image_url'],
       );
       _loadData();
     }
   }
 
-  Future<void> _editChair(ChairModel chair) async {
+  Future<void> _editBarber(BarberModel barber) async {
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => _ChairFormDialog(chair: chair),
+      builder: (ctx) => _BarberFormDialog(barber: barber),
     );
     if (result != null) {
-      await _service.updateChair(
-        chair.id,
+      await _service.updateBarber(
+        barber.id,
         name: result['name']!,
-        imageUrl: result['image_url']?.isEmpty == true ? null : result['image_url'],
+        imageUrl: result['image_url']?.isEmpty == true
+            ? null
+            : result['image_url'],
       );
       _loadData();
     }
   }
 
-  Future<void> _deleteChair(ChairModel chair) async {
+  Future<void> _deleteBarber(BarberModel barber) async {
     final confirmed = await _showConfirmDialog(
-      title: 'حذف الكرسي',
-      message: 'هل تريد حذف "${chair.name}"؟ سيتم حذف الطابور المرتبط.',
+      title: 'حذف الحلاق',
+      message: 'هل تريد حذف "${barber.name}"؟ سيتم حذف الطابور المرتبط.',
     );
     if (confirmed) {
-      await _service.deleteChair(chair.id);
+      await _service.deleteBarber(barber.id);
       _loadData();
     }
   }
 
   Future<void> _createBarberAccount() async {
+    final shop = _shop ?? widget.shop;
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => _CreateBarberAccountDialog(barberName: _barber!.name),
+      builder: (ctx) => _CreateBarberAccountDialog(shopName: shop.name),
     );
     if (result != null) {
       try {
-        await _service.createBarberUser(
+        await _service.createBarberWithUser(
+          shopId: widget.shop.id,
           name: result['name']!,
           phone: result['phone']!,
           password: result['password']!,
-          barberId: widget.barber.id,
         );
         if (mounted) {
+          _loadData();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content:
-                  Text('تم إنشاء حساب الحلاق بنجاح', style: GoogleFonts.cairo()),
+              content: Text('تم إنشاء حساب الحلاق بنجاح',
+                  style: GoogleFonts.cairo()),
               backgroundColor: AppTheme.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
@@ -133,38 +146,49 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
     }
   }
 
-  Future<String?> _showTextDialog({
-    required String title,
-    required String hint,
-  }) async {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
+  Future<void> _linkBarberAccount(BarberModel barber) async {
+    final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title:
-              Text(title, style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(hintText: hint),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text('إلغاء', style: GoogleFonts.cairo()),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: Text('إضافة', style: GoogleFonts.cairo()),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => _LinkBarberAccountDialog(barberName: barber.name),
     );
+    if (result != null) {
+      try {
+        await _service.createUserForBarber(
+          barberId: barber.id,
+          name: barber.name,
+          phone: result['phone']!,
+          password: result['password']!,
+        );
+        if (mounted) {
+          _loadData();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('تم ربط حساب الحلاق بنجاح',
+                  style: GoogleFonts.cairo()),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e.toString().replaceAll('Exception: ', ''),
+                style: GoogleFonts.cairo(),
+              ),
+              backgroundColor: AppTheme.danger,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<bool> _showConfirmDialog({
@@ -178,8 +202,8 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
         child: AlertDialog(
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title:
-              Text(title, style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+          title: Text(title,
+              style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
           content: Text(message, style: GoogleFonts.cairo()),
           actions: [
             TextButton(
@@ -188,8 +212,8 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style:
-                  ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.danger),
               child: Text('حذف', style: GoogleFonts.cairo()),
             ),
           ],
@@ -201,11 +225,11 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final barber = _barber ?? widget.barber;
+    final shop = _shop ?? widget.shop;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(barber.name),
+        title: Text(shop.name),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded),
           onPressed: () => Navigator.pop(context),
@@ -218,7 +242,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
               final updated = await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => BarberFormScreen(barber: barber),
+                  builder: (_) => BarberFormScreen(shop: shop),
                 ),
               );
               if (updated == true) _loadData();
@@ -233,7 +257,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 40),
                 children: [
-                  // ─── Barber Profile Header ─────────
+                  // ─── Shop Profile Header ───────────
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
@@ -252,24 +276,24 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           height: 100,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border:
-                                Border.all(color: AppTheme.accent, width: 3),
-                            image: barber.imageUrl != null
+                            border: Border.all(
+                                color: AppTheme.accent, width: 3),
+                            image: shop.imageUrl != null
                                 ? DecorationImage(
-                                    image: NetworkImage(barber.imageUrl!),
+                                    image: NetworkImage(shop.imageUrl!),
                                     fit: BoxFit.cover,
                                   )
                                 : null,
                             color: AppTheme.accent.withOpacity(0.2),
                           ),
-                          child: barber.imageUrl == null
-                              ? const Icon(Icons.content_cut_rounded,
+                          child: shop.imageUrl == null
+                              ? const Icon(Icons.store_rounded,
                                   color: AppTheme.accent, size: 44)
                               : null,
                         ),
                         const SizedBox(height: 14),
                         Text(
-                          barber.name,
+                          shop.name,
                           style: GoogleFonts.cairo(
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
@@ -285,7 +309,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
-                            'الرمز: ${barber.code}',
+                            'الرمز: ${shop.code}',
                             style: GoogleFonts.cairo(
                               fontSize: 13,
                               color: AppTheme.accent,
@@ -298,27 +322,28 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (barber.phone != null) ...[
+                            if (shop.phone != null) ...[
                               const Icon(Icons.phone_outlined,
                                   color: Colors.white54, size: 14),
                               const SizedBox(width: 4),
                               Text(
-                                barber.phone!,
+                                shop.phone!,
                                 style: GoogleFonts.cairo(
                                     fontSize: 12, color: Colors.white54),
                                 textDirection: TextDirection.ltr,
                               ),
                               const SizedBox(width: 16),
                             ],
-                            if (barber.address != null) ...[
+                            if (shop.address != null) ...[
                               const Icon(Icons.location_on_outlined,
                                   color: Colors.white54, size: 14),
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
-                                  barber.address!,
+                                  shop.address!,
                                   style: GoogleFonts.cairo(
-                                      fontSize: 12, color: Colors.white54),
+                                      fontSize: 12,
+                                      color: Colors.white54),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -332,9 +357,9 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             _MiniStat(
-                              icon: Icons.chair_rounded,
-                              value: '${_chairs.length}',
-                              label: 'كراسي',
+                              icon: Icons.content_cut_rounded,
+                              value: '${_barbers.length}',
+                              label: 'حلاقون',
                             ),
                             const SizedBox(width: 24),
                             _MiniStat(
@@ -344,12 +369,12 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                             ),
                             const SizedBox(width: 24),
                             _MiniStat(
-                              icon: barber.isActive
+                              icon: shop.isActive
                                   ? Icons.check_circle_rounded
                                   : Icons.cancel_rounded,
-                              value: barber.isActive ? 'نشط' : 'معطل',
+                              value: shop.isActive ? 'نشط' : 'معطل',
                               label: 'الحالة',
-                              color: barber.isActive
+                              color: shop.isActive
                                   ? AppTheme.success
                                   : AppTheme.danger,
                             ),
@@ -360,14 +385,14 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ─── Chairs Section ────────────────
+                  // ─── Barbers Section ───────────────
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Row(
                       children: [
                         Expanded(
                           child: Text(
-                            'الكراسي (${_chairs.length})',
+                            'الحلاقون (${_barbers.length})',
                             style: GoogleFonts.cairo(
                               fontSize: 17,
                               fontWeight: FontWeight.w800,
@@ -376,7 +401,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           ),
                         ),
                         TextButton.icon(
-                          onPressed: _addChair,
+                          onPressed: _addBarber,
                           icon: const Icon(Icons.add_rounded,
                               size: 20, color: AppTheme.accent),
                           label: Text('إضافة',
@@ -388,20 +413,20 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  if (_chairs.isEmpty)
+                  if (_barbers.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(20),
                       child: Center(
                         child: Text(
-                          'لا توجد كراسي — اضغط "إضافة"',
+                          'لا يوجد حلاقون — اضغط "إضافة"',
                           style: GoogleFonts.cairo(
                               fontSize: 14, color: AppTheme.textMuted),
                         ),
                       ),
                     )
                   else
-                    ...List.generate(_chairs.length, (i) {
-                      final chair = _chairs[i];
+                    ...List.generate(_barbers.length, (i) {
+                      final barber = _barbers[i];
                       return Container(
                         margin: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 5),
@@ -413,36 +438,39 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                         ),
                         child: Row(
                           children: [
-                            // ─── Chair Image ─────────────
+                            // ─── Barber Image ─────────────
                             Container(
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: AppTheme.accent.withOpacity(0.3),
+                                  color:
+                                      AppTheme.accent.withOpacity(0.3),
                                   width: 2,
                                 ),
-                                image: chair.imageUrl != null
+                                image: barber.imageUrl != null
                                     ? DecorationImage(
-                                        image: NetworkImage(chair.imageUrl!),
+                                        image:
+                                            NetworkImage(barber.imageUrl!),
                                         fit: BoxFit.cover,
                                       )
                                     : null,
                                 color: AppTheme.accent.withOpacity(0.1),
                               ),
-                              child: chair.imageUrl == null
-                                  ? const Icon(Icons.chair_rounded,
+                              child: barber.imageUrl == null
+                                  ? const Icon(Icons.content_cut_rounded,
                                       color: AppTheme.accent, size: 24)
                                   : null,
                             ),
                             const SizedBox(width: 14),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    chair.name,
+                                    barber.name,
                                     style: GoogleFonts.cairo(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
@@ -450,29 +478,74 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                                     ),
                                   ),
                                   Text(
-                                    '${chair.queueLength} في الانتظار',
+                                    '${barber.queueLength} في الانتظار',
                                     style: GoogleFonts.cairo(
                                       fontSize: 12,
                                       color: AppTheme.textMuted,
                                     ),
                                   ),
+                                  const SizedBox(height: 3),
+                                  if (_linkedBarberIds.contains(barber.id))
+                                    Row(children: [
+                                      const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: AppTheme.success,
+                                          size: 13),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        'حساب نشط',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 11,
+                                          color: AppTheme.success,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ])
+                                  else
+                                    Row(children: [
+                                      const Icon(
+                                          Icons.no_accounts_outlined,
+                                          color: AppTheme.textMuted,
+                                          size: 13),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        'لا يوجد حساب',
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 11,
+                                          color: AppTheme.textMuted,
+                                        ),
+                                      ),
+                                    ]),
                                 ],
                               ),
                             ),
+                            if (!_linkedBarberIds.contains(barber.id))
+                              IconButton(
+                                icon: const Icon(Icons.key_rounded,
+                                    color: AppTheme.accent, size: 20),
+                                onPressed: () =>
+                                    _linkBarberAccount(barber),
+                                tooltip: 'إنشاء حساب تسجيل دخول',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                    minWidth: 36, minHeight: 36),
+                              ),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined,
                                   color: AppTheme.accent, size: 20),
-                              onPressed: () => _editChair(chair),
+                              onPressed: () => _editBarber(barber),
                               tooltip: 'تعديل',
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
                                   minWidth: 36, minHeight: 36),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded,
-                                  color: AppTheme.danger, size: 22),
-                              onPressed: () => _deleteChair(chair),
-                              tooltip: 'حذف الكرسي',
+                              icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: AppTheme.danger,
+                                  size: 22),
+                              onPressed: () => _deleteBarber(barber),
+                              tooltip: 'حذف الحلاق',
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
                                   minWidth: 36, minHeight: 36),
@@ -511,7 +584,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: (barber.vipEnabled
+                            color: (shop.vipEnabled
                                     ? const Color(0xFFFFB300)
                                     : AppTheme.textMuted)
                                 .withValues(alpha: 0.12),
@@ -519,7 +592,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           ),
                           child: Icon(
                             Icons.star_rounded,
-                            color: barber.vipEnabled
+                            color: shop.vipEnabled
                                 ? const Color(0xFFFFB300)
                                 : AppTheme.textMuted,
                             size: 22,
@@ -533,7 +606,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           ),
                         ),
                         subtitle: Text(
-                          barber.vipEnabled
+                          shop.vipEnabled
                               ? 'العملاء يمكنهم اختيار VIP أو عادي'
                               : 'الطابور العادي فقط متاح للعملاء',
                           style: GoogleFonts.cairo(
@@ -541,24 +614,114 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                             color: AppTheme.textMuted,
                           ),
                         ),
-                        value: barber.vipEnabled,
+                        value: shop.vipEnabled,
                         activeThumbColor: const Color(0xFFFFB300),
                         onChanged: (val) async {
                           final messenger = ScaffoldMessenger.of(context);
                           try {
-                            await _service.toggleBarberVip(barber.id, val);
+                            await _service.toggleShopVip(shop.id, val);
                             await _loadData();
                           } catch (e) {
                             messenger.showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  e.toString().replaceAll('Exception: ', ''),
+                                  e.toString()
+                                      .replaceAll('Exception: ', ''),
                                   style: GoogleFonts.cairo(),
                                 ),
                                 backgroundColor: Colors.red,
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
+                                    borderRadius:
+                                        BorderRadius.circular(12)),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ─── Prepayment Section ────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'الدفع المسبق',
+                      style: GoogleFonts.cairo(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 4),
+                        secondary: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: (shop.prepaymentEnabled
+                                    ? AppTheme.accent
+                                    : AppTheme.textMuted)
+                                .withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.payment_rounded,
+                            color: shop.prepaymentEnabled
+                                ? AppTheme.accent
+                                : AppTheme.textMuted,
+                            size: 22,
+                          ),
+                        ),
+                        title: Text(
+                          'تفعيل الدفع المسبق',
+                          style: GoogleFonts.cairo(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          shop.prepaymentEnabled
+                              ? 'العملاء يحجزون مسبقاً ويدفعون قبل الدخول'
+                              : 'العملاء ينضمون للطابور مباشرة',
+                          style: GoogleFonts.cairo(
+                            fontSize: 12,
+                            color: AppTheme.textMuted,
+                          ),
+                        ),
+                        value: shop.prepaymentEnabled,
+                        activeThumbColor: AppTheme.accent,
+                        onChanged: (val) async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            await _service.toggleShopPrepayment(
+                                shop.id, val);
+                            await _loadData();
+                          } catch (e) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e.toString()
+                                      .replaceAll('Exception: ', ''),
+                                  style: GoogleFonts.cairo(),
+                                ),
+                                backgroundColor: AppTheme.danger,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12)),
                               ),
                             );
                           }
@@ -572,7 +735,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'حساب الحلاق',
+                      'إنشاء حساب حلاق',
                       style: GoogleFonts.cairo(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -590,7 +753,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                         onPressed: _createBarberAccount,
                         icon: const Icon(Icons.person_add_alt_1_rounded,
                             size: 20),
-                        label: Text('إنشاء حساب حلاق لهذا الصالون',
+                        label: Text('إنشاء حساب حلاق جديد في هذا الصالون',
                             style: GoogleFonts.cairo(
                                 fontWeight: FontWeight.w600)),
                         style: OutlinedButton.styleFrom(
@@ -613,8 +776,8 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                         onPressed: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => ProductsScreen(
-                                barberId: widget.barber.id),
+                            builder: (_) =>
+                                ProductsScreen(barberId: widget.shop.id),
                           ),
                         ),
                         icon: const Icon(Icons.shopping_bag_outlined,
@@ -677,10 +840,11 @@ class _MiniStat extends StatelessWidget {
 }
 
 // ─── Create Barber Account Dialog ─────────────────────────────
+// Creates both a barber record and a user login simultaneously via createBarberWithUser.
 class _CreateBarberAccountDialog extends StatefulWidget {
-  final String barberName;
+  final String shopName;
 
-  const _CreateBarberAccountDialog({required this.barberName});
+  const _CreateBarberAccountDialog({required this.shopName});
 
   @override
   State<_CreateBarberAccountDialog> createState() =>
@@ -695,12 +859,6 @@ class _CreateBarberAccountDialogState
   final _formKey = GlobalKey<FormState>();
 
   @override
-  void initState() {
-    super.initState();
-    _nameCtrl.text = widget.barberName;
-  }
-
-  @override
   void dispose() {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
@@ -713,9 +871,21 @@ class _CreateBarberAccountDialogState
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('إنشاء حساب حلاق',
-            style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('إنشاء حساب حلاق',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+            Text(
+              'في صالون ${widget.shopName}',
+              style: GoogleFonts.cairo(
+                  fontSize: 12, color: AppTheme.textMuted),
+            ),
+          ],
+        ),
         content: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -792,17 +962,122 @@ class _CreateBarberAccountDialogState
   }
 }
 
-// ─── Chair Form Dialog (Add / Edit) with Image Upload ─────
-class _ChairFormDialog extends StatefulWidget {
-  final ChairModel? chair;
+// ─── Link Barber Account Dialog ───────────────────────────────────────────
+// Creates a users login record for an *existing* barbers record.
+class _LinkBarberAccountDialog extends StatefulWidget {
+  final String barberName;
 
-  const _ChairFormDialog({this.chair});
+  const _LinkBarberAccountDialog({required this.barberName});
 
   @override
-  State<_ChairFormDialog> createState() => _ChairFormDialogState();
+  State<_LinkBarberAccountDialog> createState() =>
+      _LinkBarberAccountDialogState();
 }
 
-class _ChairFormDialogState extends State<_ChairFormDialog> {
+class _LinkBarberAccountDialogState extends State<_LinkBarberAccountDialog> {
+  final _phoneCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _phoneCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('ربط حساب تسجيل دخول',
+                style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+            Text(
+              'للحلاق: ${widget.barberName}',
+              style: GoogleFonts.cairo(
+                  fontSize: 12, color: AppTheme.textMuted),
+            ),
+          ],
+        ),
+        content: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _phoneCtrl,
+                keyboardType: TextInputType.phone,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(
+                  hintText: 'رقم الهاتف',
+                  prefixIcon: Icon(Icons.phone_outlined,
+                      color: AppTheme.accent),
+                  contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                ),
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? 'أدخل رقم الهاتف' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _passCtrl,
+                decoration: const InputDecoration(
+                  hintText: 'كلمة المرور',
+                  prefixIcon: Icon(Icons.lock_outline,
+                      color: AppTheme.accent),
+                  contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                ),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'أدخل كلمة المرور';
+                  if (v.length < 4) return 'كلمة المرور قصيرة جداً';
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('إلغاء', style: GoogleFonts.cairo()),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                Navigator.pop(context, {
+                  'phone': _phoneCtrl.text.trim(),
+                  'password': _passCtrl.text.trim(),
+                });
+              }
+            },
+            icon: const Icon(Icons.key_rounded, size: 18),
+            label: Text('ربط', style: GoogleFonts.cairo()),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Barber Form Dialog (Add / Edit staff barber) with Image Upload ─────
+class _BarberFormDialog extends StatefulWidget {
+  final BarberModel? barber;
+
+  const _BarberFormDialog({this.barber});
+
+  @override
+  State<_BarberFormDialog> createState() => _BarberFormDialogState();
+}
+
+class _BarberFormDialogState extends State<_BarberFormDialog> {
   final SupabaseService _service = SupabaseService();
   final _picker = ImagePicker();
   late final TextEditingController _nameCtrl;
@@ -816,8 +1091,8 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.chair?.name ?? '');
-    _existingImageUrl = widget.chair?.imageUrl;
+    _nameCtrl = TextEditingController(text: widget.barber?.name ?? '');
+    _existingImageUrl = widget.barber?.imageUrl;
   }
 
   @override
@@ -858,14 +1133,13 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
 
     String? imageUrl = _existingImageUrl;
 
-    // Upload if new image picked
     if (_pickedBytes != null) {
       setState(() => _uploading = true);
       try {
         imageUrl = await _service.uploadImage(
           _pickedBytes!,
           fileExt: _pickedExt ?? 'jpg',
-          folder: 'chairs',
+          folder: 'barbers',
         );
       } catch (e) {
         setState(() => _uploading = false);
@@ -884,7 +1158,7 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isEdit = widget.chair != null;
+    final isEdit = widget.barber != null;
     final hasLocal = _pickedBytes != null;
     final hasNetwork =
         _existingImageUrl != null && _existingImageUrl!.isNotEmpty;
@@ -893,9 +1167,10 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
-          isEdit ? 'تعديل الكرسي' : 'إضافة كرسي',
+          isEdit ? 'تعديل الحلاق' : 'إضافة حلاق',
           style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
         ),
         content: Form(
@@ -924,15 +1199,16 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
                                 )
                               : hasNetwork
                                   ? DecorationImage(
-                                      image:
-                                          NetworkImage(_existingImageUrl!),
+                                      image: NetworkImage(
+                                          _existingImageUrl!),
                                       fit: BoxFit.cover,
                                     )
                                   : null,
                         ),
                         child: !hasImage
                             ? Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
                                 children: [
                                   const Icon(Icons.add_a_photo_rounded,
                                       color: AppTheme.accent, size: 28),
@@ -994,15 +1270,16 @@ class _ChairFormDialogState extends State<_ChairFormDialog> {
                   controller: _nameCtrl,
                   autofocus: !hasImage,
                   decoration: InputDecoration(
-                    hintText: 'اسم الكرسي (مثال: كرسي 4)',
-                    prefixIcon: const Icon(Icons.chair_rounded,
+                    hintText: 'اسم الحلاق (مثال: أحمد)',
+                    prefixIcon: const Icon(Icons.content_cut_rounded,
                         color: AppTheme.accent),
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'أدخل اسم الكرسي'
-                      : null,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty)
+                          ? 'أدخل اسم الحلاق'
+                          : null,
                 ),
               ],
             ),

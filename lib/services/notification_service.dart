@@ -56,15 +56,15 @@ class NotificationService {
     );
   }
 
-  // Sent to the barber when a new customer joins their chair's queue.
-  static Future<void> notifyBarberNewCustomer(String chairName) async {
+  // Sent to the barber when a new customer joins their queue.
+  static Future<void> notifyBarberNewCustomer(String barberName) async {
     if (!_initialized) return;
 
     await _plugin.show(
       100,
       'عميل جديد في الطابور',
-      chairName.isNotEmpty
-          ? 'انضم عميل جديد إلى طابور $chairName'
+      barberName.isNotEmpty
+          ? 'انضم عميل جديد إلى طابور $barberName'
           : 'انضم عميل جديد إلى الطابور',
       const NotificationDetails(
         android: AndroidNotificationDetails(

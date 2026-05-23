@@ -6,13 +6,14 @@ import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
+import 'payment_booking_screen.dart';
 
 const int _kMinutesPerPerson = 45;
 
 class QueueDetailsScreen extends StatefulWidget {
-  final ChairModel chair;
+  final BarberModel barber;
 
-  const QueueDetailsScreen({super.key, required this.chair});
+  const QueueDetailsScreen({super.key, required this.barber});
 
   @override
   State<QueueDetailsScreen> createState() => _QueueDetailsScreenState();
@@ -21,8 +22,8 @@ class QueueDetailsScreen extends StatefulWidget {
 class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   final SupabaseService _service = SupabaseService();
   List<QueueEntryModel> _queue = [];
-  BarberModel? _barber;
-  ChairModel? _chairState;
+  ShopModel? _shop;
+  BarberModel? _barberState;
   bool _loading = true;
   bool _joining = false;
   bool _leaving = false;
@@ -30,6 +31,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   bool _inOtherQueue = false;
   int? _myPosition;
   String? _myQueueType;
+  PaymentRequestModel? _pendingPayment;
   RealtimeChannel? _subscription;
 
   @override
@@ -50,20 +52,20 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     if (user == null) return;
 
     try {
-      final queue = await _service.getQueueForChair(widget.chair.id);
+      final queue = await _service.getQueueForBarber(widget.barber.id);
       final inAnyQueue = await _service.isUserInQueue(user.id);
-      final entry =
-          await _service.getUserQueueEntry(user.id, widget.chair.id);
-      final freshChair = await _service.getChairById(widget.chair.id);
+      final entry = await _service.getUserQueueEntry(user.id, widget.barber.id);
+      final freshBarber = await _service.getBarberById(widget.barber.id);
 
-      if (user.barberId != null) {
-        _barber = await _service.getBarberById(user.barberId!);
-      }
+      _shop = await _service.getShopById(widget.barber.shopId);
+
+      final pending = await _service.getUserPendingPayment(user.id, widget.barber.id);
 
       if (mounted) {
         setState(() {
           _queue = queue;
-          _chairState = freshChair;
+          _barberState = freshBarber;
+          _pendingPayment = pending;
           if (entry != null) {
             _myPosition = entry['position'] as int?;
             _myQueueType = entry['queue_type'] as String?;
@@ -87,7 +89,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
 
     setState(() => _joining = true);
     try {
-      await _service.joinQueue(widget.chair.id, user.id, queueType: queueType);
+      await _service.joinQueue(widget.barber.id, user.id, queueType: queueType);
       await _loadQueue();
       if (mounted) _showSnack('تم الانضمام للطابور بنجاح', AppTheme.success);
     } catch (e) {
@@ -163,6 +165,24 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     );
   }
 
+  Future<void> _openBookingScreen(String queueType) async {
+    if (_shop == null) return;
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentBookingScreen(
+          barber: widget.barber,
+          shop: _shop!,
+          queueType: queueType,
+        ),
+      ),
+    );
+    if (result == true) {
+      await _loadQueue();
+      if (mounted) _showSnack('تم إرسال طلب الحجز، انتظر الموافقة', AppTheme.accent);
+    }
+  }
+
   String _formatWaitTime(int minutes) {
     if (minutes <= 0) return 'دورك الآن!';
     final h = minutes ~/ 60;
@@ -174,8 +194,8 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final chair = _chairState ?? widget.chair;
-    final vipEnabled = _barber?.vipEnabled ?? false;
+    final barber = _barberState ?? widget.barber;
+    final vipEnabled = _shop?.vipEnabled ?? false;
     final vipCount = _queue.where((e) => e.queueType == 'vip').length;
     final normalCount = _queue.where((e) => e.queueType == 'normal').length;
     final inThisQueue = _myPosition != null;
@@ -184,7 +204,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.chair.name),
+        title: Text(widget.barber.name),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded),
           onPressed: () => Navigator.pop(context),
@@ -195,7 +215,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
           : SingleChildScrollView(
               child: Column(
                 children: [
-                  // ─── Header: Barber + Chair ───────────
+                  // ─── Header: Shop + Barber ────────────
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -208,22 +228,22 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                     ),
                     child: Column(
                       children: [
-                        // Barber + Chair images
+                        // Shop + Barber images
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (_barber != null)
+                            if (_shop != null)
                               _ProfileCircle(
-                                imageUrl: _barber!.imageUrl,
-                                label: _barber!.name,
-                                fallbackIcon: Icons.content_cut_rounded,
+                                imageUrl: _shop!.imageUrl,
+                                label: _shop!.name,
+                                fallbackIcon: Icons.store_rounded,
                                 isCircle: true,
                               ),
-                            if (_barber != null) const SizedBox(width: 24),
+                            if (_shop != null) const SizedBox(width: 24),
                             _ProfileCircle(
-                              imageUrl: widget.chair.imageUrl,
-                              label: widget.chair.name,
-                              fallbackIcon: Icons.chair_rounded,
+                              imageUrl: widget.barber.imageUrl,
+                              label: widget.barber.name,
+                              fallbackIcon: Icons.content_cut_rounded,
                               isCircle: false,
                             ),
                           ],
@@ -314,7 +334,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                                   color: AppTheme.danger.withValues(alpha: 0.2)),
                             ),
                             child: Text(
-                              'أنت في طابور كرسي آخر',
+                              'أنت في طابور حلاق آخر',
                               style: GoogleFonts.cairo(
                                 color: AppTheme.danger,
                                 fontWeight: FontWeight.w600,
@@ -323,8 +343,79 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                               textAlign: TextAlign.center,
                             ),
                           ),
+                        ] else if (_shop?.prepaymentEnabled == true &&
+                            _pendingPayment != null) ...[
+                          // Pending payment review state
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accent.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                  color: AppTheme.accent.withValues(alpha: 0.25)),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: AppTheme.accent),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'طلب الحجز قيد المراجعة',
+                                  style: GoogleFonts.cairo(
+                                    color: AppTheme.accent,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else if (_shop?.prepaymentEnabled == true) ...[
+                          // Book buttons (prepayment flow)
+                          if (vipEnabled)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildJoinButton(
+                                    label: 'حجز VIP',
+                                    icon: Icons.star_rounded,
+                                    isLocked: barber.isVipLocked,
+                                    lockedLabel: 'VIP مغلق',
+                                    color: const Color(0xFFFFB300),
+                                    onPressed: () => _openBookingScreen('vip'),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildJoinButton(
+                                    label: 'حجز عادي',
+                                    icon: Icons.bookmark_added_rounded,
+                                    isLocked: barber.isNormalLocked,
+                                    lockedLabel: 'عادي مغلق',
+                                    color: AppTheme.accent,
+                                    onPressed: () => _openBookingScreen('normal'),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            _buildJoinButton(
+                              label: 'احجز مكانك',
+                              icon: Icons.bookmark_added_rounded,
+                              isLocked: barber.isNormalLocked,
+                              lockedLabel: 'الطابور مغلق',
+                              color: AppTheme.accent,
+                              onPressed: () => _openBookingScreen('normal'),
+                            ),
                         ] else ...[
-                          // Join Queue buttons
+                          // Direct join buttons
                           if (vipEnabled)
                             Row(
                               children: [
@@ -332,7 +423,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                                   child: _buildJoinButton(
                                     label: 'VIP',
                                     icon: Icons.star_rounded,
-                                    isLocked: chair.isVipLocked,
+                                    isLocked: barber.isVipLocked,
                                     lockedLabel: 'VIP مغلق',
                                     color: const Color(0xFFFFB300),
                                     onPressed: () => _joinQueue('vip'),
@@ -343,7 +434,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                                   child: _buildJoinButton(
                                     label: 'عادي',
                                     icon: Icons.people_rounded,
-                                    isLocked: chair.isNormalLocked,
+                                    isLocked: barber.isNormalLocked,
                                     lockedLabel: 'عادي مغلق',
                                     color: AppTheme.accent,
                                     onPressed: () => _joinQueue('normal'),
@@ -355,7 +446,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                             _buildJoinButton(
                               label: 'انضم للطابور',
                               icon: Icons.people_rounded,
-                              isLocked: chair.isNormalLocked,
+                              isLocked: barber.isNormalLocked,
                               lockedLabel: 'الطابور مغلق',
                               color: AppTheme.accent,
                               onPressed: () => _joinQueue('normal'),
@@ -428,7 +519,6 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
         ),
         child: Column(
           children: [
-            // Status icon
             Container(
               width: 64,
               height: 64,
@@ -449,7 +539,6 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            // Queue type badge
             Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -481,7 +570,6 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            // ── Big Position Number ──────────────────
             Container(
               width: 140,
               height: 140,
@@ -517,7 +605,6 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            // ── Wait Time + People Ahead ─────────────
             Row(
               children: [
                 Expanded(
@@ -551,7 +638,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'دورك الآن! توجه للكرسي',
+                  'دورك الآن! توجه للحلاق',
                   style: GoogleFonts.cairo(
                     color: AppTheme.success,
                     fontWeight: FontWeight.w700,
@@ -620,7 +707,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  'أنت مسجل في طابور كرسي آخر',
+                  'أنت مسجل في طابور حلاق آخر',
                   style: GoogleFonts.cairo(
                     fontSize: 12,
                     color: AppTheme.danger,
