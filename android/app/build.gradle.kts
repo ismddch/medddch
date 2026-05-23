@@ -32,11 +32,17 @@ android {
 
     defaultConfig {
         applicationId = "com.hallaqak.app"
-        minSdk = flutter.minSdkVersion
+        minSdk = 21                   // explicit — matches old APK's minSdk
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+
+        // Cover ALL ABIs that the old fat APK supported so current users
+        // can update. The AAB will generate one split APK per ABI.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+        }
     }
 
     signingConfigs {
