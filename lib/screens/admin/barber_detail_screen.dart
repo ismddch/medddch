@@ -144,6 +144,68 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
     }
   }
 
+  Future<void> _manageBookingCode(BarberModel barber) async {
+    // Fetch current settings from DB (includes actual code — admin only)
+    Map<String, dynamic> settings;
+    try {
+      settings = await _service.getBarberBookingCodeSettings(barber.id);
+    } catch (_) {
+      settings = {'enabled': false, 'code': null};
+    }
+
+    if (!mounted) return;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _BookingCodeDialog(
+        barberName: barber.name,
+        currentEnabled: settings['enabled'] as bool,
+        currentCode: settings['code'] as String?,
+      ),
+    );
+
+    if (result != null) {
+      try {
+        await _service.setBarberBookingCode(
+          barber.id,
+          enabled: result['enabled'] as bool,
+          code: result['code'] as String?,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                result['enabled'] == true
+                    ? 'تم تفعيل رمز الحجز'
+                    : 'تم إلغاء رمز الحجز',
+                style: GoogleFonts.cairo(),
+              ),
+              backgroundColor: AppTheme.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+          _loadData();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                e.toString().replaceAll('Exception: ', ''),
+                style: GoogleFonts.cairo(),
+              ),
+              backgroundColor: AppTheme.danger,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _linkBarberAccount(BarberModel barber) async {
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -528,6 +590,25 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                                 constraints: const BoxConstraints(
                                     minWidth: 36, minHeight: 36),
                               ),
+                            // ── Booking-code toggle button ──
+                            IconButton(
+                              icon: Icon(
+                                barber.bookingCodeEnabled
+                                    ? Icons.lock_rounded
+                                    : Icons.lock_open_rounded,
+                                color: barber.bookingCodeEnabled
+                                    ? Colors.orange
+                                    : AppTheme.textMuted,
+                                size: 20,
+                              ),
+                              onPressed: () => _manageBookingCode(barber),
+                              tooltip: barber.bookingCodeEnabled
+                                  ? 'رمز الحجز مُفعَّل — اضغط للإدارة'
+                                  : 'تفعيل رمز الحجز',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                  minWidth: 36, minHeight: 36),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined,
                                   color: AppTheme.accent, size: 20),
@@ -1317,6 +1398,216 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
                     isEdit ? 'حفظ' : 'إضافة',
                     style: GoogleFonts.cairo(),
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Booking Code Dialog ──────────────────────────────────────────────────────
+// Admin dialog to enable / disable / update the per-barber booking code.
+class _BookingCodeDialog extends StatefulWidget {
+  final String barberName;
+  final bool currentEnabled;
+  final String? currentCode;
+
+  const _BookingCodeDialog({
+    required this.barberName,
+    required this.currentEnabled,
+    this.currentCode,
+  });
+
+  @override
+  State<_BookingCodeDialog> createState() => _BookingCodeDialogState();
+}
+
+class _BookingCodeDialogState extends State<_BookingCodeDialog> {
+  late bool _enabled;
+  late final TextEditingController _codeCtrl;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = widget.currentEnabled;
+    _codeCtrl = TextEditingController(
+        text: widget.currentCode ?? '');
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_enabled && !(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.pop(context, {
+      'enabled': _enabled,
+      'code': _enabled ? _codeCtrl.text.trim().toUpperCase() : null,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: (_enabled
+                        ? Colors.orange
+                        : AppTheme.textMuted)
+                    .withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                _enabled ? Icons.lock_rounded : Icons.lock_open_rounded,
+                color: _enabled ? Colors.orange : AppTheme.textMuted,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'رمز الحجز',
+                    style: GoogleFonts.cairo(
+                        fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
+                  Text(
+                    widget.barberName,
+                    style: GoogleFonts.cairo(
+                        fontSize: 12, color: AppTheme.textMuted),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Enable toggle ──
+              Container(
+                decoration: BoxDecoration(
+                  color: _enabled
+                      ? Colors.orange.withValues(alpha: 0.07)
+                      : AppTheme.primary.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _enabled
+                        ? Colors.orange.withValues(alpha: 0.35)
+                        : AppTheme.divider,
+                  ),
+                ),
+                child: SwitchListTile(
+                  value: _enabled,
+                  onChanged: (v) => setState(() => _enabled = v),
+                  secondary: Icon(
+                    Icons.vpn_key_rounded,
+                    color: _enabled ? Colors.orange : AppTheme.textMuted,
+                    size: 20,
+                  ),
+                  title: Text(
+                    'طلب رمز عند الحجز',
+                    style: GoogleFonts.cairo(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: _enabled ? Colors.orange : AppTheme.primary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    _enabled
+                        ? 'العميل يجب أن يدخل الرمز قبل الانضمام'
+                        : 'الحجز مفتوح بدون رمز',
+                    style: GoogleFonts.cairo(
+                        fontSize: 11, color: AppTheme.textMuted),
+                  ),
+                  activeThumbColor: Colors.orange,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12),
+                  dense: true,
+                ),
+              ),
+
+              // ── Code field (visible only when enabled) ──
+              if (_enabled) ...[
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _codeCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.characters,
+                  textDirection: TextDirection.ltr,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.cairo(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 6),
+                  decoration: InputDecoration(
+                    labelText: 'الرمز السري',
+                    labelStyle: GoogleFonts.cairo(
+                        fontSize: 13, color: AppTheme.textMuted),
+                    hintText: 'مثال: A1B2',
+                    hintStyle: GoogleFonts.cairo(
+                        letterSpacing: 4,
+                        color: AppTheme.textMuted.withValues(alpha: 0.4)),
+                    prefixIcon: const Icon(Icons.lock_outline_rounded,
+                        color: Colors.orange),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'أدخل الرمز السري';
+                    }
+                    if (v.trim().length < 3) {
+                      return 'الرمز قصير جداً (3 أحرف على الأقل)';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'شارك هذا الرمز فقط مع عملائك المعتمدين.\nالرمز غير حساس لحالة الأحرف.',
+                  style: GoogleFonts.cairo(
+                      fontSize: 11, color: AppTheme.textMuted),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('إلغاء', style: GoogleFonts.cairo()),
+          ),
+          ElevatedButton.icon(
+            onPressed: _submit,
+            icon: Icon(
+              _enabled ? Icons.lock_rounded : Icons.lock_open_rounded,
+              size: 18,
+            ),
+            label: Text('حفظ', style: GoogleFonts.cairo()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  _enabled ? Colors.orange : AppTheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
           ),
         ],
       ),

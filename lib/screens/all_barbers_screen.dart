@@ -158,6 +158,14 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => QueueDetailsScreen(barber: barber)));
   }
 
+  /// Navigate directly to the booking/profile page (works even when closed).
+  void _openProfile(BarberModel barber) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => QueueDetailsScreen(barber: barber)),
+    );
+  }
+
   BarberModel? get _fav {
     if (_likedBarberId == null) return null;
     try { return _barbers.firstWhere((b) => b.id == _likedBarberId); } catch (_) { return null; }
@@ -321,6 +329,7 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                     onSave: _toggleSave,
                     onBook: _book,
                     onDetails: (b, r) => _showDetails(b, r),
+                    onPhotoTap: _openProfile,
                   ),
                 ),
               ),
@@ -354,6 +363,7 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                         onNameTap: () => _showDetails(rest[i], i + 4),
                         onSave: () => _toggleSave(rest[i]),
                         onBook: () => _book(rest[i]),
+                        onPhotoTap: () => _openProfile(rest[i]),
                       ),
                       childCount: rest.length,
                     ),
@@ -386,6 +396,7 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
                       onBook: fav.isClosed ? null : () => _book(fav),
                       onDetails: () => _showDetails(fav, _barbers.indexWhere((b) => b.id == fav.id) + 1),
                       onRemove: () => _toggleLike(fav),
+                      onPhotoTap: () => _openProfile(fav),
                     ),
                   ),
                 ),
@@ -445,6 +456,7 @@ class _TopSection extends StatelessWidget {
   final Function(BarberModel) onSave;
   final Function(BarberModel) onBook;
   final Function(BarberModel, int) onDetails;
+  final Function(BarberModel) onPhotoTap;
 
   const _TopSection({
     required this.barbers,
@@ -454,6 +466,7 @@ class _TopSection extends StatelessWidget {
     required this.onSave,
     required this.onBook,
     required this.onDetails,
+    required this.onPhotoTap,
   });
 
   @override
@@ -476,18 +489,21 @@ class _TopSection extends StatelessWidget {
           _BigCard(barber: barbers[0], rank: 1, isLiked: likedId == barbers[0].id,
               isSaved: savedIds.contains(barbers[0].id),
               onLike: () => onLike(barbers[0]), onSave: () => onSave(barbers[0]),
-              onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1))
+              onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1),
+              onPhotoTap: () => onPhotoTap(barbers[0]))
         else if (barbers.length == 2)
           Row(children: [
             Expanded(child: _BigCard(barber: barbers[0], rank: 1, isLiked: likedId == barbers[0].id,
                 isSaved: savedIds.contains(barbers[0].id),
                 onLike: () => onLike(barbers[0]), onSave: () => onSave(barbers[0]),
-                onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1))),
+                onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1),
+                onPhotoTap: () => onPhotoTap(barbers[0]))),
             const SizedBox(width: 10),
             Expanded(child: _BigCard(barber: barbers[1], rank: 2, isLiked: likedId == barbers[1].id,
                 isSaved: savedIds.contains(barbers[1].id),
                 onLike: () => onLike(barbers[1]), onSave: () => onSave(barbers[1]),
-                onBook: () => onBook(barbers[1]), onDetails: () => onDetails(barbers[1], 2))),
+                onBook: () => onBook(barbers[1]), onDetails: () => onDetails(barbers[1], 2),
+                onPhotoTap: () => onPhotoTap(barbers[1]))),
           ])
         else
           Row(
@@ -498,7 +514,8 @@ class _TopSection extends StatelessWidget {
                 child: _BigCard(barber: barbers[0], rank: 1, isLiked: likedId == barbers[0].id,
                     isSaved: savedIds.contains(barbers[0].id),
                     onLike: () => onLike(barbers[0]), onSave: () => onSave(barbers[0]),
-                    onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1)),
+                    onBook: () => onBook(barbers[0]), onDetails: () => onDetails(barbers[0], 1),
+                    onPhotoTap: () => onPhotoTap(barbers[0])),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -508,12 +525,14 @@ class _TopSection extends StatelessWidget {
                     _SmallCard(barber: barbers[1], rank: 2, isLiked: likedId == barbers[1].id,
                         isSaved: savedIds.contains(barbers[1].id),
                         onLike: () => onLike(barbers[1]), onSave: () => onSave(barbers[1]),
-                        onBook: () => onBook(barbers[1]), onDetails: () => onDetails(barbers[1], 2)),
+                        onBook: () => onBook(barbers[1]), onDetails: () => onDetails(barbers[1], 2),
+                        onPhotoTap: () => onPhotoTap(barbers[1])),
                     const SizedBox(height: 10),
                     _SmallCard(barber: barbers[2], rank: 3, isLiked: likedId == barbers[2].id,
                         isSaved: savedIds.contains(barbers[2].id),
                         onLike: () => onLike(barbers[2]), onSave: () => onSave(barbers[2]),
-                        onBook: () => onBook(barbers[2]), onDetails: () => onDetails(barbers[2], 3)),
+                        onBook: () => onBook(barbers[2]), onDetails: () => onDetails(barbers[2], 3),
+                        onPhotoTap: () => onPhotoTap(barbers[2])),
                   ],
                 ),
               ),
@@ -550,12 +569,14 @@ class _BigCard extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onBook;
   final VoidCallback onDetails;
+  final VoidCallback onPhotoTap;
 
   const _BigCard({
     required this.barber, required this.rank,
     required this.isLiked, required this.isSaved,
     required this.onLike, required this.onSave,
     required this.onBook, required this.onDetails,
+    required this.onPhotoTap,
   });
 
   Color get _rankColor {
@@ -577,62 +598,65 @@ class _BigCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Photo
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(22), topRight: Radius.circular(22)),
-                child: SizedBox(
-                  height: 195,
-                  width: double.infinity,
-                  child: barber.imageUrl != null
-                      ? Image.network(barber.imageUrl!, fit: BoxFit.cover,
-                          color: isClosed ? Colors.grey : null,
-                          colorBlendMode: isClosed ? BlendMode.saturation : null,
-                          errorBuilder: (_, __, ___) => _PhotoPlaceholder(isClosed: isClosed, name: barber.name))
-                      : _PhotoPlaceholder(isClosed: isClosed, name: barber.name),
+          // Photo — tappable to open barber profile
+          GestureDetector(
+            onTap: onPhotoTap,
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(22), topRight: Radius.circular(22)),
+                  child: SizedBox(
+                    height: 195,
+                    width: double.infinity,
+                    child: barber.imageUrl != null
+                        ? Image.network(barber.imageUrl!, fit: BoxFit.cover,
+                            color: isClosed ? Colors.grey : null,
+                            colorBlendMode: isClosed ? BlendMode.saturation : null,
+                            errorBuilder: (_, __, ___) => _PhotoPlaceholder(isClosed: isClosed, name: barber.name))
+                        : _PhotoPlaceholder(isClosed: isClosed, name: barber.name),
+                  ),
                 ),
-              ),
-              // Gradient overlay
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(22), topRight: Radius.circular(22)),
-                child: Container(
-                  height: 195,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.50)],
-                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                      stops: const [0.45, 1.0],
+                // Gradient overlay
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(22), topRight: Radius.circular(22)),
+                  child: Container(
+                    height: 195,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, Colors.black.withValues(alpha: 0.50)],
+                        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                        stops: const [0.45, 1.0],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // Rank badge
-              Positioned(
-                top: 10, right: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _rankColor, borderRadius: BorderRadius.circular(8)),
-                  child: Text('#$rank',
-                      style: GoogleFonts.cairo(
-                          fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                // Rank badge
+                Positioned(
+                  top: 10, right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _rankColor, borderRadius: BorderRadius.circular(8)),
+                    child: Text('#$rank',
+                        style: GoogleFonts.cairo(
+                            fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                  ),
                 ),
-              ),
-              // Like + bookmark buttons
-              Positioned(
-                top: 10, left: 10,
-                child: Row(
-                  children: [
-                    _PhotoLikeBtn(isLiked: isLiked, onTap: onLike),
-                    const SizedBox(width: 6),
-                    _PhotoBookmarkBtn(isSaved: isSaved, onTap: onSave),
-                  ],
+                // Like + bookmark buttons
+                Positioned(
+                  top: 10, left: 10,
+                  child: Row(
+                    children: [
+                      _PhotoLikeBtn(isLiked: isLiked, onTap: onLike),
+                      const SizedBox(width: 6),
+                      _PhotoBookmarkBtn(isSaved: isSaved, onTap: onSave),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
 
           // Info
@@ -753,12 +777,14 @@ class _SmallCard extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onBook;
   final VoidCallback onDetails;
+  final VoidCallback onPhotoTap;
 
   const _SmallCard({
     required this.barber, required this.rank,
     required this.isLiked, required this.isSaved,
     required this.onLike, required this.onSave,
     required this.onBook, required this.onDetails,
+    required this.onPhotoTap,
   });
 
   Color get _rankColor =>
@@ -777,58 +803,62 @@ class _SmallCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(18), topRight: Radius.circular(18)),
-                child: SizedBox(
-                  height: 115,
-                  width: double.infinity,
-                  child: barber.imageUrl != null
-                      ? Image.network(barber.imageUrl!, fit: BoxFit.cover,
-                          color: isClosed ? Colors.grey : null,
-                          colorBlendMode: isClosed ? BlendMode.saturation : null,
-                          errorBuilder: (_, __, ___) => _PhotoPlaceholder(isClosed: isClosed, name: barber.name))
-                      : _PhotoPlaceholder(isClosed: isClosed, name: barber.name),
+          // Photo — tappable to open barber profile
+          GestureDetector(
+            onTap: onPhotoTap,
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+                  child: SizedBox(
+                    height: 115,
+                    width: double.infinity,
+                    child: barber.imageUrl != null
+                        ? Image.network(barber.imageUrl!, fit: BoxFit.cover,
+                            color: isClosed ? Colors.grey : null,
+                            colorBlendMode: isClosed ? BlendMode.saturation : null,
+                            errorBuilder: (_, __, ___) => _PhotoPlaceholder(isClosed: isClosed, name: barber.name))
+                        : _PhotoPlaceholder(isClosed: isClosed, name: barber.name),
+                  ),
                 ),
-              ),
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(18), topRight: Radius.circular(18)),
-                child: Container(
-                  height: 115,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.40)],
-                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                      stops: const [0.45, 1.0],
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(18), topRight: Radius.circular(18)),
+                  child: Container(
+                    height: 115,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, Colors.black.withValues(alpha: 0.40)],
+                        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                        stops: const [0.45, 1.0],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                top: 6, right: 6,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: _rankColor, borderRadius: BorderRadius.circular(6)),
-                  child: Text('#$rank',
-                      style: GoogleFonts.cairo(
-                          fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
+                Positioned(
+                  top: 6, right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: _rankColor, borderRadius: BorderRadius.circular(6)),
+                    child: Text('#$rank',
+                        style: GoogleFonts.cairo(
+                            fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
+                  ),
                 ),
-              ),
-              Positioned(
-                top: 6, left: 6,
-                child: Row(
-                  children: [
-                    _PhotoLikeBtn(isLiked: isLiked, onTap: onLike, size: 26),
-                    const SizedBox(width: 4),
-                    _PhotoBookmarkBtn(isSaved: isSaved, onTap: onSave),
-                  ],
+                Positioned(
+                  top: 6, left: 6,
+                  child: Row(
+                    children: [
+                      _PhotoLikeBtn(isLiked: isLiked, onTap: onLike, size: 26),
+                      const SizedBox(width: 4),
+                      _PhotoBookmarkBtn(isSaved: isSaved, onTap: onSave),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -919,12 +949,14 @@ class _GridCard extends StatelessWidget {
   final VoidCallback onNameTap;
   final VoidCallback onSave;
   final VoidCallback onBook;
+  final VoidCallback onPhotoTap;
 
   const _GridCard({
     required this.barber, required this.rank,
     required this.isLiked, required this.isSaved,
     required this.onTap, required this.onNameTap,
     required this.onSave, required this.onBook,
+    required this.onPhotoTap,
   });
 
   @override
@@ -941,9 +973,11 @@ class _GridCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Photo (fills all space not taken by the info section) ──
+          // ── Photo — tappable to open barber profile ──────────────
           Expanded(
-            child: Stack(
+            child: GestureDetector(
+              onTap: onPhotoTap,
+              child: Stack(
               children: [
                 ClipRRect(
                   borderRadius: const BorderRadius.only(
@@ -989,8 +1023,9 @@ class _GridCard extends StatelessWidget {
                     ),
                   ),
               ],
-            ),
-          ),
+              ),   // Stack
+            ),     // GestureDetector
+          ),       // Expanded
 
           // ── Info (fixed height content) ──────────────────────────
           Padding(
@@ -1070,10 +1105,12 @@ class _FavCard extends StatelessWidget {
   final VoidCallback? onBook;
   final VoidCallback onDetails;
   final VoidCallback onRemove;
+  final VoidCallback onPhotoTap;
 
   const _FavCard({
     required this.barber, required this.rank,
-    required this.onBook, required this.onDetails, required this.onRemove,
+    required this.onBook, required this.onDetails,
+    required this.onRemove, required this.onPhotoTap,
   });
 
   String get _rankLabel {
@@ -1129,20 +1166,23 @@ class _FavCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Container(
-                  width: 70,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4), width: 2),
-                    color: AppTheme.surface,
-                    image: barber.imageUrl != null
-                        ? DecorationImage(image: NetworkImage(barber.imageUrl!), fit: BoxFit.cover)
+                GestureDetector(
+                  onTap: onPhotoTap,
+                  child: Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.4), width: 2),
+                      color: AppTheme.surface,
+                      image: barber.imageUrl != null
+                          ? DecorationImage(image: NetworkImage(barber.imageUrl!), fit: BoxFit.cover)
+                          : null,
+                    ),
+                    child: barber.imageUrl == null
+                        ? const Icon(Icons.content_cut_rounded, color: AppTheme.accent, size: 26)
                         : null,
                   ),
-                  child: barber.imageUrl == null
-                      ? const Icon(Icons.content_cut_rounded, color: AppTheme.accent, size: 26)
-                      : null,
                 ),
                 const SizedBox(width: 14),
                 Expanded(

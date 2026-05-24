@@ -32,7 +32,7 @@ android {
 
     defaultConfig {
         applicationId = "com.hallaqak.app"
-        minSdk = 21                   // explicit — matches old APK's minSdk
+        minSdk = flutter.minSdkVersion                   // explicit — matches old APK's minSdk
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName

@@ -54,17 +54,18 @@ class ShopModel {
 // Maps to the `barbers` table (previously `chairs`) — individual staff members
 class BarberModel {
   final String id;
-  final String shopId;      // was barberId — references shops.id
+  final String shopId;           // was barberId — references shops.id
   final String name;
   final String? imageUrl;
   final bool isClosed;
   final bool isVipLocked;
   final bool isNormalLocked;
+  final bool bookingCodeEnabled; // true → customer must enter a code before joining
   int queueLength;
-  int likeCount;            // total likes from barber_likes table
-  String? shopName;         // denormalised shop name for ranking screens
-  String? paymentNumber;    // account/wallet number customers send money to
-  String? location;         // city/area set by admin for filtering
+  int likeCount;                 // total likes from barber_likes table
+  String? shopName;              // denormalised shop name for ranking screens
+  String? paymentNumber;         // account/wallet number customers send money to
+  String? location;              // city/area set by admin for filtering
 
   BarberModel({
     required this.id,
@@ -74,6 +75,7 @@ class BarberModel {
     this.isClosed = false,
     this.isVipLocked = false,
     this.isNormalLocked = false,
+    this.bookingCodeEnabled = false,
     this.queueLength = 0,
     this.likeCount = 0,
     this.shopName,
@@ -98,6 +100,7 @@ class BarberModel {
       isClosed: map['is_closed'] ?? false,
       isVipLocked: map['vip_locked'] ?? false,
       isNormalLocked: map['normal_locked'] ?? false,
+      bookingCodeEnabled: map['booking_code_enabled'] ?? false,
       queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
       likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
       shopName:      shop?['name'],

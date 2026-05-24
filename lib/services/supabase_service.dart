@@ -189,6 +189,7 @@ class SupabaseService {
         isClosed: row['is_closed'] ?? false,
         isVipLocked: row['vip_locked'] ?? false,
         isNormalLocked: row['normal_locked'] ?? false,
+        bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength: count is int ? count : int.tryParse('$count') ?? 0,
         paymentNumber: row['payment_number'],
       );
@@ -287,18 +288,19 @@ class SupabaseService {
   }
 
   /// Join a queue with specified type (vip or normal).
+  /// [bookingCode] is required when the barber has booking_code_enabled = true.
   Future<void> joinQueue(String barberId, String userId,
-      {String queueType = 'normal'}) async {
+      {String queueType = 'normal', String? bookingCode}) async {
     // Check if already in any queue
     final inQueue = await isUserInQueue(userId);
     if (inQueue) {
       throw Exception('أنت بالفعل في طابور');
     }
 
-    // Check barber and queue-type lock status
+    // Check barber status, lock state, and booking code in a single query
     final barberRes = await _client
         .from('barbers')
-        .select('is_closed, vip_locked, normal_locked')
+        .select('is_closed, vip_locked, normal_locked, booking_code_enabled, booking_code')
         .eq('id', barberId)
         .single();
 
@@ -308,6 +310,17 @@ class SupabaseService {
     }
     if (queueType == 'normal' && (barberRes['normal_locked'] ?? false)) {
       throw Exception('الطابور العادي مغلق حالياً');
+    }
+
+    // Validate booking code when required
+    if (barberRes['booking_code_enabled'] == true) {
+      final requiredCode = (barberRes['booking_code'] as String?)?.trim().toUpperCase();
+      if (requiredCode != null && requiredCode.isNotEmpty) {
+        final enteredCode = bookingCode?.trim().toUpperCase() ?? '';
+        if (enteredCode != requiredCode) {
+          throw Exception('رمز الحجز غير صحيح');
+        }
+      }
     }
 
     // Get next position within this queue type
@@ -593,7 +606,9 @@ class SupabaseService {
         throw Exception('هذا الرقم موجود بالفعل في طابور');
       }
     } else {
-      // Create a guest account (no password needed for guest)
+      // Create a guest account (no password needed for guest).
+      // NOTE: barber_id on users now references barbers (staff), not shops —
+      // so we intentionally omit it for guests.
       final res = await _client
           .from('users')
           .insert({
@@ -601,7 +616,6 @@ class SupabaseService {
             'phone': phone,
             'password': 'guest_${DateTime.now().millisecondsSinceEpoch}',
             'role': 'customer',
-            'barber_id': shopId,
           })
           .select()
           .single();
@@ -1072,13 +1086,14 @@ class SupabaseService {
       final rawQueue = (queueList != null && queueList.isNotEmpty) ? queueList[0]['count'] : 0;
 
       return BarberModel(
-        id:             row['id'],
-        shopId:         row['shop_id'],
-        name:           row['name'],
-        imageUrl:       row['image_url'],
-        isClosed:       row['is_closed']     ?? false,
-        isVipLocked:    row['vip_locked']    ?? false,
-        isNormalLocked: row['normal_locked'] ?? false,
+        id:                 row['id'],
+        shopId:             row['shop_id'],
+        name:               row['name'],
+        imageUrl:           row['image_url'],
+        isClosed:           row['is_closed']           ?? false,
+        isVipLocked:        row['vip_locked']          ?? false,
+        isNormalLocked:     row['normal_locked']       ?? false,
+        bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         shopName:      shop?['name'],
@@ -1120,19 +1135,50 @@ class SupabaseService {
       final rawQueue = (queueList != null && queueList.isNotEmpty) ? queueList[0]['count'] : 0;
 
       return BarberModel(
-        id:             row['id'],
-        shopId:         row['shop_id'],
-        name:           row['name'],
-        imageUrl:       row['image_url'],
-        isClosed:       row['is_closed']     ?? false,
-        isVipLocked:    row['vip_locked']    ?? false,
-        isNormalLocked: row['normal_locked'] ?? false,
+        id:                 row['id'],
+        shopId:             row['shop_id'],
+        name:               row['name'],
+        imageUrl:           row['image_url'],
+        isClosed:           row['is_closed']           ?? false,
+        isVipLocked:        row['vip_locked']          ?? false,
+        isNormalLocked:     row['normal_locked']       ?? false,
+        bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         paymentNumber: row['payment_number'],
         location:      row['location'],
       );
     }).toList();
+  }
+
+  // ─── BOOKING CODE ──────────────────────────────────────────
+
+  /// Fetch the booking-code settings for a barber (admin only).
+  /// Returns {'enabled': bool, 'code': String?}
+  Future<Map<String, dynamic>> getBarberBookingCodeSettings(String barberId) async {
+    final res = await _client
+        .from('barbers')
+        .select('booking_code_enabled, booking_code')
+        .eq('id', barberId)
+        .single();
+    return {
+      'enabled': res['booking_code_enabled'] as bool? ?? false,
+      'code':    res['booking_code']         as String?,
+    };
+  }
+
+  /// Enable or disable the booking-code requirement for a barber (admin only).
+  /// Pass [enabled]=true and a non-empty [code] to activate.
+  /// Pass [enabled]=false to deactivate (code is cleared in DB).
+  Future<void> setBarberBookingCode(
+    String barberId, {
+    required bool enabled,
+    String? code,
+  }) async {
+    await _client.from('barbers').update({
+      'booking_code_enabled': enabled,
+      'booking_code': enabled ? (code?.trim().toUpperCase()) : null,
+    }).eq('id', barberId);
   }
 
   // ─── ADMIN: USER MANAGEMENT ───────────────────────────────
