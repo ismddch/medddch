@@ -61,11 +61,13 @@ class BarberModel {
   final bool isVipLocked;
   final bool isNormalLocked;
   final bool bookingCodeEnabled; // true → customer must enter a code before joining
+  final String menuQueueType;    // 'both'|'vip'|'normal' — which queue type shows the menu
   int queueLength;
   int likeCount;                 // total likes from barber_likes table
   String? shopName;              // denormalised shop name for ranking screens
   String? paymentNumber;         // account/wallet number customers send money to
   String? location;              // city/area set by admin for filtering
+  String? tiktokUrl;             // TikTok profile link
 
   BarberModel({
     required this.id,
@@ -76,11 +78,13 @@ class BarberModel {
     this.isVipLocked = false,
     this.isNormalLocked = false,
     this.bookingCodeEnabled = false,
+    this.menuQueueType = 'both',
     this.queueLength = 0,
     this.likeCount = 0,
     this.shopName,
     this.paymentNumber,
     this.location,
+    this.tiktokUrl,
   });
 
   factory BarberModel.fromMap(Map<String, dynamic> map) {
@@ -101,11 +105,13 @@ class BarberModel {
       isVipLocked: map['vip_locked'] ?? false,
       isNormalLocked: map['normal_locked'] ?? false,
       bookingCodeEnabled: map['booking_code_enabled'] ?? false,
+      menuQueueType:      map['menu_queue_type'] ?? 'both',
       queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
       likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
       shopName:      shop?['name'],
       paymentNumber: map['payment_number'],
       location:      map['location'],
+      tiktokUrl:     map['tiktok_url'],
     );
   }
 }
@@ -120,6 +126,7 @@ class UserModel {
   final String role;
   final String? barberId;
   final String? imageUrl;
+  final bool isBlocked;
 
   UserModel({
     required this.id,
@@ -128,6 +135,7 @@ class UserModel {
     required this.role,
     this.barberId,
     this.imageUrl,
+    this.isBlocked = false,
   });
 
   bool get isBarber => role == 'barber';
@@ -143,6 +151,7 @@ class UserModel {
       role: map['role'] ?? 'customer',
       barberId: map['barber_id'],
       imageUrl: map['image_url'],
+      isBlocked: map['is_blocked'] ?? false,
     );
   }
 
@@ -159,6 +168,7 @@ class UserModel {
         role: role,
         barberId: barberId ?? this.barberId,
         imageUrl: clearImage ? null : (imageUrl ?? this.imageUrl),
+        isBlocked: isBlocked,
       );
 
   Map<String, dynamic> toMap() => {
@@ -168,6 +178,7 @@ class UserModel {
         'role': role,
         'barber_id': barberId,
         'image_url': imageUrl,
+        'is_blocked': isBlocked,
       };
 }
 
@@ -257,6 +268,7 @@ class PaymentRequestModel {
   String? userPhone;
   String? barberName;       // staff barber name
   String? shopName;         // shop name
+  final List<Map<String, dynamic>>? selectedServices; // services chosen at booking
 
   PaymentRequestModel({
     required this.id,
@@ -273,6 +285,7 @@ class PaymentRequestModel {
     this.userPhone,
     this.barberName,
     this.shopName,
+    this.selectedServices,
   });
 
   bool get isPending  => status == 'pending';
@@ -283,23 +296,85 @@ class PaymentRequestModel {
     final user   = map['users']   as Map<String, dynamic>?;
     final barber = map['barbers'] as Map<String, dynamic>?;
     final shop   = map['shops']   as Map<String, dynamic>?;
+    // Parse selected_services JSONB
+    List<Map<String, dynamic>>? services;
+    final rawSvc = map['selected_services'];
+    if (rawSvc is List) {
+      services = rawSvc.map((s) => Map<String, dynamic>.from(s as Map)).toList();
+    }
     return PaymentRequestModel(
-      id:         map['id'],
-      userId:     map['user_id'],
-      barberId:   map['barber_id'],
-      shopId:     map['shop_id'],
-      amount:     map['amount'] != null ? (map['amount'] as num).toDouble() : null,
-      walletType: map['wallet_type'],
-      photoUrl:   map['photo_url'],
-      queueType:  map['queue_type'] ?? 'normal',
-      status:     map['status'],
-      createdAt:  DateTime.parse(map['created_at']),
-      userName:   user?['name'],
-      userPhone:  user?['phone'],
-      barberName: barber?['name'],
-      shopName:   shop?['name'],
+      id:               map['id'],
+      userId:           map['user_id'],
+      barberId:         map['barber_id'],
+      shopId:           map['shop_id'],
+      amount:           map['amount'] != null ? (map['amount'] as num).toDouble() : null,
+      walletType:       map['wallet_type'],
+      photoUrl:         map['photo_url'],
+      queueType:        map['queue_type'] ?? 'normal',
+      status:           map['status'],
+      createdAt:        DateTime.parse(map['created_at']),
+      userName:         user?['name'],
+      userPhone:        user?['phone'],
+      barberName:       barber?['name'],
+      shopName:         shop?['name'],
+      selectedServices: services,
     );
   }
+}
+
+// ─── Barber Menu Item Model ────────────────────────────────────
+class BarberMenuItemModel {
+  final String id;
+  final String barberId;
+  final String name;
+  final double price;
+  final bool isAvailable;
+  final int sortOrder;
+  /// 'vip' | 'normal' | 'both'  — which queue type this item applies to
+  final String queueType;
+  final DateTime createdAt;
+
+  BarberMenuItemModel({
+    required this.id,
+    required this.barberId,
+    required this.name,
+    required this.price,
+    this.isAvailable = true,
+    this.sortOrder = 0,
+    this.queueType = 'both',
+    required this.createdAt,
+  });
+
+  factory BarberMenuItemModel.fromMap(Map<String, dynamic> map) {
+    return BarberMenuItemModel(
+      id:          map['id'],
+      barberId:    map['barber_id'],
+      name:        map['name'],
+      price:       (map['price'] as num).toDouble(),
+      isAvailable: map['is_available'] ?? true,
+      sortOrder:   map['sort_order'] ?? 0,
+      queueType:   map['queue_type'] as String? ?? 'both',
+      createdAt:   DateTime.parse(map['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'id':           id,
+        'barber_id':    barberId,
+        'name':         name,
+        'price':        price,
+        'is_available': isAvailable,
+        'sort_order':   sortOrder,
+        'queue_type':   queueType,
+        'created_at':   createdAt.toIso8601String(),
+      };
+
+  // For selected services JSONB storage
+  Map<String, dynamic> toSelectedJson() => {
+        'id':    id,
+        'name':  name,
+        'price': price,
+      };
 }
 
 // ─── Queue Entry Model ─────────────────────────────────────────
@@ -316,6 +391,8 @@ class QueueEntryModel {
   String? barberName;       // the staff barber's name
   String? shopName;         // the shop name (from barbers→shops join)
   bool shopPrepaymentEnabled;
+  final List<Map<String, dynamic>>? selectedServices; // services chosen at booking
+  final double? servicesTotal;                        // total price of services
 
   QueueEntryModel({
     required this.id,
@@ -329,12 +406,20 @@ class QueueEntryModel {
     this.barberName,
     this.shopName,
     this.shopPrepaymentEnabled = false,
+    this.selectedServices,
+    this.servicesTotal,
   });
 
   factory QueueEntryModel.fromMap(Map<String, dynamic> map) {
     final user   = map['users']   as Map<String, dynamic>?;
     final barber = map['barbers'] as Map<String, dynamic>?;
     final shop   = barber?['shops'] as Map<String, dynamic>?;
+    // Parse selected_services JSONB (can be List or null)
+    List<Map<String, dynamic>>? services;
+    final rawServices = map['selected_services'];
+    if (rawServices is List) {
+      services = rawServices.map((s) => Map<String, dynamic>.from(s as Map)).toList();
+    }
     return QueueEntryModel(
       id:                      map['id'],
       barberId:                map['barber_id'],
@@ -347,6 +432,10 @@ class QueueEntryModel {
       barberName:              barber?['name'],
       shopName:                shop?['name'],
       shopPrepaymentEnabled:   shop?['prepayment_enabled'] as bool? ?? false,
+      selectedServices:        services,
+      servicesTotal:           map['services_total'] != null
+                                   ? (map['services_total'] as num).toDouble()
+                                   : null,
     );
   }
 }

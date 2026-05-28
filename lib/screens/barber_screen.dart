@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -27,6 +28,7 @@ class BarberScreen extends StatefulWidget {
 class _BarberScreenState extends State<BarberScreen> {
   final SupabaseService _service = SupabaseService();
   List<QueueEntryModel> _queue = [];
+  int _prevQueueLength = -1; // -1 = initial load, skip notification
   BarberModel? _barber;
   ShopModel? _shop;
   bool _loading = true;
@@ -36,7 +38,8 @@ class _BarberScreenState extends State<BarberScreen> {
   int _currentIndex = 0;
 
   // Profile tab state
-  final _nameCtrl = TextEditingController();
+  final _nameCtrl   = TextEditingController();
+  final _tiktokCtrl = TextEditingController();
   final _picker = ImagePicker();
   bool _barberSaving = false;
   bool _barberUploadingImage = false;
@@ -48,6 +51,10 @@ class _BarberScreenState extends State<BarberScreen> {
   // Payments tab state
   List<PaymentRequestModel> _paymentRequests = [];
   RealtimeChannel? _paymentChannel;
+
+  // Menu tab state
+  List<BarberMenuItemModel> _menuItems = [];
+  bool _menuLoading = false;
 
   @override
   void initState() {
@@ -64,6 +71,7 @@ class _BarberScreenState extends State<BarberScreen> {
     if (_paymentChannel != null) _service.unsubscribe(_paymentChannel!);
     _autoRemoveTimer?.cancel();
     _nameCtrl.dispose();
+    _tiktokCtrl.dispose();
     super.dispose();
   }
 
@@ -83,16 +91,27 @@ class _BarberScreenState extends State<BarberScreen> {
         _service.getQueueForBarber(barber.id),
         _service.getBarberPortfolio(barber.id),
         _service.getPendingPaymentsForBarber(barber.id),
+        _service.getBarberMenu(barber.id),
       ]);
       if (mounted) {
         setState(() {
           _barber          = barber;
           _shop            = results[0] as ShopModel?;
-          _queue           = results[1] as List<QueueEntryModel>;
+          final newQueue   = results[1] as List<QueueEntryModel>;
+          final prevLen    = _prevQueueLength;
+          _queue           = newQueue;
+          _prevQueueLength = newQueue.length;
           _portfolioUrls   = results[2] as List<String>;
           _paymentRequests = results[3] as List<PaymentRequestModel>;
+          _menuItems       = results[4] as List<BarberMenuItemModel>;
           _loading         = false;
           if (_nameCtrl.text.isEmpty) _nameCtrl.text = barber.name;
+          if (_tiktokCtrl.text.isEmpty) _tiktokCtrl.text = barber.tiktokUrl ?? '';
+
+          // Notify barber when a new customer joins (skip the very first load)
+          if (prevLen >= 0 && newQueue.length > prevLen) {
+            NotificationService.notifyBarberNewCustomer(barber.name);
+          }
         });
       }
     } catch (_) {
@@ -144,11 +163,15 @@ class _BarberScreenState extends State<BarberScreen> {
   }
 
   Future<void> _saveBarberProfile() async {
-    final name = _nameCtrl.text.trim();
+    final name   = _nameCtrl.text.trim();
+    final tiktok = _tiktokCtrl.text.trim();
     if (name.isEmpty || _barber == null) return;
     setState(() => _barberSaving = true);
     try {
       await _service.updateBarber(_barber!.id, name: name, imageUrl: _barber!.imageUrl);
+      if (tiktok != (_barber!.tiktokUrl ?? '')) {
+        await _service.updateBarberTiktokUrl(_barber!.id, tiktok.isEmpty ? null : tiktok);
+      }
       setState(() => _barber = BarberModel(
             id: _barber!.id,
             shopId: _barber!.shopId,
@@ -159,6 +182,7 @@ class _BarberScreenState extends State<BarberScreen> {
             isNormalLocked: _barber!.isNormalLocked,
             queueLength: _barber!.queueLength,
             paymentNumber: _barber!.paymentNumber,
+            tiktokUrl: tiktok.isEmpty ? null : tiktok,
           ));
       _showMessage('تم حفظ بيانات الحلاق');
     } catch (e) {
@@ -351,17 +375,79 @@ class _BarberScreenState extends State<BarberScreen> {
     );
   }
 
-  // ─── Queue Actions ────────────────────────────────────────
+  // ─── Menu Actions ─────────────────────────────────────────
 
-  Future<void> _nextVip() async {
+  Future<void> _loadMenu() async {
     if (_barber == null) return;
-    await _service.removeFirstInQueue(_barber!.id, 'vip');
-    await _loadData();
+    setState(() => _menuLoading = true);
+    try {
+      final items = await _service.getBarberMenu(_barber!.id);
+      if (mounted) setState(() => _menuItems = items);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _menuLoading = false);
+    }
   }
 
-  Future<void> _nextNormal() async {
+  Future<void> _addOrEditMenuItem({BarberMenuItemModel? existing}) async {
     if (_barber == null) return;
-    await _service.removeFirstInQueue(_barber!.id, 'normal');
+    // Use a StatefulWidget dialog so controllers have a proper lifecycle
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _MenuItemDialog(existing: existing),
+    );
+    if (result == null) return;
+
+    final name      = result['name']      as String;
+    final price     = result['price']     as double;
+    final queueType = result['queueType'] as String? ?? 'both';
+    if (name.isEmpty) return;
+
+    try {
+      if (existing == null) {
+        final item = await _service.addMenuItem(
+            barberId: _barber!.id, name: name, price: price, queueType: queueType);
+        if (mounted) setState(() => _menuItems.add(item));
+      } else {
+        await _service.updateMenuItem(
+            id: existing.id, name: name, price: price, queueType: queueType);
+        await _loadMenu();
+      }
+      if (mounted) _showMessage(existing == null ? 'تمت إضافة الخدمة' : 'تم تحديث الخدمة');
+    } catch (e) {
+      if (mounted) _showMessage(e.toString().replaceAll('Exception: ', ''), isError: true);
+    }
+  }
+
+  Future<void> _toggleItemAvailability(BarberMenuItemModel item) async {
+    try {
+      await _service.updateMenuItem(
+          id: item.id, isAvailable: !item.isAvailable);
+      await _loadMenu();
+    } catch (e) {
+      _showMessage(e.toString().replaceAll('Exception: ', ''), isError: true);
+    }
+  }
+
+  Future<void> _deleteMenuItem(BarberMenuItemModel item) async {
+    final confirmed = await _showConfirm(
+        'حذف الخدمة', 'هل تريد حذف "${item.name}" من القائمة؟');
+    if (!confirmed) return;
+    try {
+      await _service.deleteMenuItem(item.id);
+      if (mounted) setState(() => _menuItems.remove(item));
+      _showMessage('تم حذف الخدمة');
+    } catch (e) {
+      _showMessage(e.toString().replaceAll('Exception: ', ''), isError: true);
+    }
+  }
+
+  // ─── Queue Actions ────────────────────────────────────────
+
+  Future<void> _nextCustomer() async {
+    if (_barber == null) return;
+    // Serve whoever joined first (global position order, no type priority)
+    await _service.removeNextInQueue(_barber!.id);
     await _loadData();
   }
 
@@ -686,7 +772,6 @@ class _BarberScreenState extends State<BarberScreen> {
       );
     }
 
-    final vipEnabled = _shop?.vipEnabled ?? false;
     final vipEntries = _queue.where((e) => e.queueType == 'vip').toList();
     final normalEntries = _queue.where((e) => e.queueType == 'normal').toList();
 
@@ -783,24 +868,17 @@ class _BarberScreenState extends State<BarberScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (vipEnabled) ...[
-                    _HeaderBadge(
-                      icon: Icons.star_rounded,
-                      label: 'VIP: ${vipEntries.length}',
-                      color: const Color(0xFFFFB300),
-                    ),
-                    const SizedBox(width: 8),
-                    _HeaderBadge(
-                      icon: Icons.people_rounded,
-                      label: 'عادي: ${normalEntries.length}',
-                      color: AppTheme.accent,
-                    ),
-                  ] else
-                    _HeaderBadge(
-                      icon: Icons.people_rounded,
-                      label: 'الطابور: ${_queue.length}',
-                      color: AppTheme.accent,
-                    ),
+                  _HeaderBadge(
+                    icon: Icons.star_rounded,
+                    label: 'VIP: ${vipEntries.length}',
+                    color: const Color(0xFFFFB300),
+                  ),
+                  const SizedBox(width: 8),
+                  _HeaderBadge(
+                    icon: Icons.people_rounded,
+                    label: 'عادي: ${normalEntries.length}',
+                    color: AppTheme.accent,
+                  ),
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -916,62 +994,25 @@ class _BarberScreenState extends State<BarberScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Column(
               children: [
-                if (vipEnabled) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed:
-                              vipEntries.isNotEmpty ? _nextVip : null,
-                          icon: const Icon(Icons.star_rounded,
-                              size: 18, color: Colors.white),
-                          label: Text('التالي VIP',
-                              style: GoogleFonts.cairo(
-                                  fontWeight: FontWeight.w700)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFFB300),
-                            foregroundColor: Colors.white,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: normalEntries.isNotEmpty
-                              ? _nextNormal
-                              : null,
-                          icon: const Icon(Icons.skip_next_rounded, size: 18),
-                          label: Text('التالي عادي',
-                              style: GoogleFonts.cairo(
-                                  fontWeight: FontWeight.w700)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.success,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed:
-                          _queue.isNotEmpty ? _nextNormal : null,
-                      icon: const Icon(Icons.skip_next_rounded, size: 20),
-                      label: Text('التالي',
-                          style: GoogleFonts.cairo(
-                              fontWeight: FontWeight.w700, fontSize: 16)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.success,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
+                // ── Single "التالي" button (join-order, no type priority) ──
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _queue.isNotEmpty ? _nextCustomer : null,
+                    icon: const Icon(Icons.skip_next_rounded, size: 20),
+                    label: Text(
+                      'التالي',
+                      style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.success,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          AppTheme.textMuted.withValues(alpha: 0.25),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
                     ),
                   ),
-                ],
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -1018,7 +1059,7 @@ class _BarberScreenState extends State<BarberScreen> {
             ),
           ),
 
-        // ─── Queue List ──────────────────────────────
+        // ─── Unified Queue List ──────────────────────
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -1061,56 +1102,19 @@ class _BarberScreenState extends State<BarberScreen> {
                     )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-                      children: (vipEnabled)
-                          ? [
-                              const _SectionHeader(
-                                icon: Icons.star_rounded,
-                                label: 'طابور VIP',
-                                color: Color(0xFFFFB300),
-                              ),
-                              if (vipEntries.isEmpty)
-                                const _EmptySectionMessage(
-                                    label: 'لا يوجد عملاء VIP')
-                              else
-                                ...vipEntries.asMap().entries.map((e) {
-                                  final entry = e.value;
-                                  return _QueueEntryCard(
-                                    entry: entry,
-                                    isFirst: e.key == 0,
-                                    isVip: true,
-                                    onRemove: () => _removeCustomer(entry),
-                                  );
-                                }),
-                              const SizedBox(height: 16),
-                              const _SectionHeader(
-                                icon: Icons.people_rounded,
-                                label: 'الطابور العادي',
-                                color: AppTheme.accent,
-                              ),
-                              if (normalEntries.isEmpty)
-                                const _EmptySectionMessage(
-                                    label:
-                                        'لا يوجد عملاء في الطابور العادي')
-                              else
-                                ...normalEntries.asMap().entries.map((e) {
-                                  final entry = e.value;
-                                  return _QueueEntryCard(
-                                    entry: entry,
-                                    isFirst: e.key == 0,
-                                    isVip: false,
-                                    onRemove: () => _removeCustomer(entry),
-                                  );
-                                }),
-                            ]
-                          : _queue.asMap().entries.map((e) {
-                              final entry = e.value;
-                              return _QueueEntryCard(
-                                entry: entry,
-                                isFirst: e.key == 0,
-                                isVip: false,
-                                onRemove: () => _removeCustomer(entry),
-                              );
-                            }).toList(),
+                      children: [
+                        // Chronological order — position reflects actual booking time
+                        ..._queue.asMap().entries.map((e) {
+                          final entry = e.value;
+                          final isVip = entry.queueType == 'vip';
+                          return _QueueEntryCard(
+                            entry: entry,
+                            isFirst: e.key == 0,
+                            isVip: isVip,
+                            onRemove: () => _removeCustomer(entry),
+                          );
+                        }),
+                      ],
                     ),
         ),
       ],
@@ -1410,6 +1414,29 @@ class _BarberScreenState extends State<BarberScreen> {
               ),
             ),
           const SizedBox(height: 24),
+          // ─── TikTok Link ──────────────────────────
+          TextField(
+            controller: _tiktokCtrl,
+            textDirection: TextDirection.ltr,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              labelText: 'رابط TikTok',
+              hintText: 'https://www.tiktok.com/@username',
+              hintStyle: GoogleFonts.cairo(fontSize: 12),
+              prefixIcon: const Padding(
+                padding: EdgeInsets.all(12),
+                child: FaIcon(FontAwesomeIcons.tiktok, size: 20, color: Color(0xFF010101)),
+              ),
+              suffixIcon: _tiktokCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      onPressed: () => setState(() => _tiktokCtrl.clear()),
+                    )
+                  : null,
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 24),
           // ─── Save Button ──────────────────────────
           SizedBox(
             width: double.infinity,
@@ -1429,6 +1456,15 @@ class _BarberScreenState extends State<BarberScreen> {
             ),
           ),
           const SizedBox(height: 32),
+          // ─── Logo above work images ───────────────
+          Center(
+            child: Image.asset(
+              'assets/logo.png',
+              height: 56,
+              fit: BoxFit.contain,
+            ),
+          ),
+          const SizedBox(height: 16),
           // ─── Portfolio ────────────────────────────
           Row(
             children: [
@@ -1573,6 +1609,111 @@ class _BarberScreenState extends State<BarberScreen> {
     );
   }
 
+  // ─── Menu Tab UI ─────────────────────────────────────────
+
+  Widget _buildMenuTab() {
+    if (_barber == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(
+      children: [
+        // ── Header ────────────────────────────────────────
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+          decoration: const BoxDecoration(
+            color: AppTheme.primary,
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'قائمة الخدمات',
+                style: GoogleFonts.cairo(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'أضف خدماتك وحدّد لكل خدمة ما إذا كانت لـ VIP أو العادي أو الجميع',
+                style: GoogleFonts.cairo(
+                    fontSize: 12, color: Colors.white60),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _addOrEditMenuItem(),
+                  icon: const Icon(Icons.add_rounded,
+                      size: 20, color: AppTheme.primary),
+                  label: Text('إضافة خدمة جديدة',
+                      style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.primary)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accent,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ── List ──────────────────────────────────────────
+        Expanded(
+          child: _menuLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _menuItems.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.menu_book_rounded,
+                              size: 64,
+                              color: AppTheme.textMuted.withValues(alpha: 0.3)),
+                          const SizedBox(height: 12),
+                          Text(
+                            'لا توجد خدمات بعد',
+                            style: GoogleFonts.cairo(
+                                fontSize: 16, color: AppTheme.textMuted),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'اضغط على "إضافة خدمة جديدة" للبدء',
+                            style: GoogleFonts.cairo(
+                                fontSize: 13, color: AppTheme.textMuted),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+                      itemCount: _menuItems.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 10),
+                      itemBuilder: (ctx, i) {
+                        final item = _menuItems[i];
+                        return _MenuItemCard(
+                          item: item,
+                          onEdit: () => _addOrEditMenuItem(existing: item),
+                          onToggle: () => _toggleItemAvailability(item),
+                          onDelete: () => _deleteMenuItem(item),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+
   // ─── Build ────────────────────────────────────────────────
 
   @override
@@ -1587,7 +1728,9 @@ class _BarberScreenState extends State<BarberScreen> {
               ? (barber != null ? '${barber.name} — لوحة التحكم' : 'لوحة التحكم')
               : _currentIndex == 1
                   ? 'طلبات الحجز المدفوع'
-                  : 'الملف الشخصي',
+                  : _currentIndex == 2
+                      ? 'الملف الشخصي'
+                      : 'قائمة الخدمات',
           style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
         ),
         automaticallyImplyLeading: false,
@@ -1647,7 +1790,7 @@ class _BarberScreenState extends State<BarberScreen> {
               ]
             : null,
       ),
-      floatingActionButton: _currentIndex == 0 && barber != null && !_loading
+      floatingActionButton: _currentIndex == 0 && barber != null && !_loading && !barber.isClosed
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1680,6 +1823,7 @@ class _BarberScreenState extends State<BarberScreen> {
         unselectedItemColor: AppTheme.textMuted,
         backgroundColor: Colors.white,
         elevation: 12,
+        type: BottomNavigationBarType.fixed,
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.people_alt_outlined),
@@ -1704,76 +1848,30 @@ class _BarberScreenState extends State<BarberScreen> {
             activeIcon: Icon(Icons.person_rounded),
             label: 'الملف الشخصي',
           ),
+          BottomNavigationBarItem(
+            icon: Badge(
+              isLabelVisible: _menuItems.isNotEmpty,
+              label: Text('${_menuItems.length}'),
+              child: const Icon(Icons.menu_book_outlined),
+            ),
+            activeIcon: Badge(
+              isLabelVisible: _menuItems.isNotEmpty,
+              label: Text('${_menuItems.length}'),
+              child: const Icon(Icons.menu_book_rounded),
+            ),
+            label: 'القائمة',
+          ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(
-              index: _currentIndex,
-              children: [
-                _buildQueueTab(),
-                _buildPaymentsTab(),
-                _buildProfileTab(),
-              ],
-            ),
-    );
-  }
-}
-
-// ─── Section Header ───────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _SectionHeader({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: GoogleFonts.cairo(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Empty Section Message ────────────────────────────────────
-class _EmptySectionMessage extends StatelessWidget {
-  final String label;
-  const _EmptySectionMessage({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-      child: Text(
-        label,
-        style: GoogleFonts.cairo(fontSize: 13, color: AppTheme.textMuted),
-        textAlign: TextAlign.center,
-      ),
+          : _currentIndex == 0
+              ? _buildQueueTab()
+              : _currentIndex == 1
+                  ? _buildPaymentsTab()
+                  : _currentIndex == 2
+                      ? _buildProfileTab()
+                      : _buildMenuTab(),
     );
   }
 }
@@ -1896,13 +1994,53 @@ class _QueueEntryCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    entry.userName ?? 'عميل',
-                    style: GoogleFonts.cairo(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.primary,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.userName ?? 'عميل',
+                          style: GoogleFonts.cairo(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                      ),
+                      // ── VIP badge ──────────────────────────────
+                      if (isVip) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFB300)
+                                .withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFFFFB300)
+                                  .withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star_rounded,
+                                  size: 11,
+                                  color: Color(0xFFFFB300)),
+                              const SizedBox(width: 3),
+                              Text(
+                                'VIP',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF7A5800),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1913,6 +2051,57 @@ class _QueueEntryCard extends StatelessWidget {
                     ),
                     textDirection: TextDirection.ltr,
                   ),
+                  // ── Selected services (if any) ───────────────
+                  if (entry.selectedServices != null &&
+                      entry.selectedServices!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 4,
+                      children: [
+                        ...entry.selectedServices!.map((s) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accent.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                    color: AppTheme.accent
+                                        .withValues(alpha: 0.25)),
+                              ),
+                              child: Text(
+                                s['name'] as String? ?? '',
+                                style: GoogleFonts.cairo(
+                                    fontSize: 11,
+                                    color: AppTheme.accent,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            )),
+                        if (entry.servicesTotal != null &&
+                            entry.servicesTotal! > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF43A047)
+                                  .withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: const Color(0xFF43A047)
+                                      .withValues(alpha: 0.3)),
+                            ),
+                            child: Text(
+                              '${entry.servicesTotal!.toStringAsFixed(entry.servicesTotal! == entry.servicesTotal!.roundToDouble() ? 0 : 2)} MRU',
+                              style: GoogleFonts.cairo(
+                                  fontSize: 11,
+                                  color: const Color(0xFF2E7D32),
+                                  fontWeight: FontWeight.w700),
+                              textDirection: TextDirection.ltr,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -2165,6 +2354,117 @@ class _BarberPaymentCardState extends State<_BarberPaymentCard> {
               ],
             ),
           ),
+
+          // ── Selected services (if any) ──────────────
+          if (p.selectedServices != null &&
+              p.selectedServices!.isNotEmpty) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.receipt_long_rounded,
+                          size: 14, color: queueColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        'الخدمة المطلوبة',
+                        style: GoogleFonts.cairo(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...p.selectedServices!.map((s) {
+                    final price =
+                        (s['price'] as num?)?.toDouble() ?? 0.0;
+                    final priceStr = price == price.roundToDouble()
+                        ? '${price.toInt()} MRU'
+                        : '${price.toStringAsFixed(2)} MRU';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 5),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: queueColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              s['name']?.toString() ?? '',
+                              style: GoogleFonts.cairo(
+                                fontSize: 13,
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            priceStr,
+                            style: GoogleFonts.cairo(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: queueColor,
+                            ),
+                            textDirection: TextDirection.ltr,
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  // Services total
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      mainAxisAlignment:
+                          MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'المجموع',
+                          style: GoogleFonts.cairo(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                        Text(
+                          () {
+                            final t = p.selectedServices!.fold(
+                              0.0,
+                              (sum, s) =>
+                                  sum +
+                                  ((s['price'] as num?)
+                                          ?.toDouble() ??
+                                      0.0),
+                            );
+                            return t == t.roundToDouble()
+                                ? '${t.toInt()} MRU'
+                                : '${t.toStringAsFixed(2)} MRU';
+                          }(),
+                          style: GoogleFonts.cairo(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: queueColor,
+                          ),
+                          textDirection: TextDirection.ltr,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const Divider(height: 1, indent: 16, endIndent: 16),
 
@@ -2429,6 +2729,321 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
               }
             },
             child: Text('إضافة للطابور', style: GoogleFonts.cairo()),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Menu Item Card ───────────────────────────────────────────
+class _MenuItemCard extends StatelessWidget {
+  final BarberMenuItemModel item;
+  final VoidCallback onEdit;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
+
+  const _MenuItemCard({
+    required this.item,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  static Color _qtColor(String qt) {
+    switch (qt) {
+      case 'vip':    return const Color(0xFFFFB300);
+      case 'normal': return AppTheme.accent;
+      default:       return AppTheme.success;
+    }
+  }
+
+  static String _qtLabel(String qt) {
+    switch (qt) {
+      case 'vip':    return '⭐ VIP';
+      case 'normal': return 'عادي';
+      default:       return 'الجميع';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = item.isAvailable;
+    final priceStr = item.price == item.price.roundToDouble()
+        ? item.price.toInt().toString()
+        : item.price.toStringAsFixed(2);
+    final qtColor = _qtColor(item.queueType);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: available
+              ? AppTheme.accent.withValues(alpha: 0.25)
+              : AppTheme.divider,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Availability dot
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: available ? AppTheme.success : AppTheme.textMuted,
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Queue-type badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: qtColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: qtColor.withValues(alpha: 0.35)),
+            ),
+            child: Text(
+              _qtLabel(item.queueType),
+              style: GoogleFonts.cairo(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: qtColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Name
+          Expanded(
+            child: Text(
+              item.name,
+              style: GoogleFonts.cairo(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: available ? AppTheme.primary : AppTheme.textMuted,
+                decoration:
+                    available ? null : TextDecoration.lineThrough,
+              ),
+            ),
+          ),
+          // Price badge
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: available
+                  ? AppTheme.accent.withValues(alpha: 0.1)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$priceStr MRU',
+              style: GoogleFonts.cairo(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: available ? AppTheme.accent : AppTheme.textMuted,
+              ),
+              textDirection: TextDirection.ltr,
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Toggle availability
+          IconButton(
+            icon: Icon(
+              available
+                  ? Icons.visibility_rounded
+                  : Icons.visibility_off_rounded,
+              size: 20,
+              color: available ? AppTheme.accent : AppTheme.textMuted,
+            ),
+            onPressed: onToggle,
+            tooltip: available ? 'إخفاء' : 'إظهار',
+          ),
+          // Edit
+          IconButton(
+            icon: const Icon(Icons.edit_rounded,
+                size: 20, color: AppTheme.primary),
+            onPressed: onEdit,
+            tooltip: 'تعديل',
+          ),
+          // Delete
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded,
+                size: 20, color: AppTheme.danger),
+            onPressed: onDelete,
+            tooltip: 'حذف',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Menu Item Dialog (StatefulWidget — avoids controller disposal crash) ────
+class _MenuItemDialog extends StatefulWidget {
+  final BarberMenuItemModel? existing;
+  const _MenuItemDialog({this.existing});
+
+  @override
+  State<_MenuItemDialog> createState() => _MenuItemDialogState();
+}
+
+class _MenuItemDialogState extends State<_MenuItemDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _priceCtrl;
+  late String _queueType; // 'vip' | 'normal' | 'both'
+
+  @override
+  void initState() {
+    super.initState();
+    final ex = widget.existing;
+    _nameCtrl  = TextEditingController(text: ex?.name ?? '');
+    _priceCtrl = TextEditingController(
+      text: ex != null
+          ? ex.price.toStringAsFixed(
+              ex.price == ex.price.roundToDouble() ? 0 : 2)
+          : '',
+    );
+    _queueType = ex?.queueType ?? 'both';
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name  = _nameCtrl.text.trim();
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+    if (name.isEmpty) return;
+    Navigator.pop(context, {'name': name, 'price': price, 'queueType': _queueType});
+  }
+
+  Widget _queueChip(String value, String label, IconData icon, Color color) {
+    final selected = _queueType == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _queueType = value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: 0.12) : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? color : Colors.grey.shade300,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: selected ? color : AppTheme.textMuted),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: GoogleFonts.cairo(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? color : AppTheme.textMuted,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.existing == null;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          isNew ? 'إضافة خدمة جديدة' : 'تعديل الخدمة',
+          style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameCtrl,
+              autofocus: true,
+              textDirection: TextDirection.rtl,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                hintText: 'اسم الخدمة (مثال: قص شعر)',
+                prefixIcon: const Icon(Icons.content_cut_rounded,
+                    color: AppTheme.accent),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _priceCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              textDirection: TextDirection.ltr,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                hintText: '0.00',
+                prefixIcon: const Icon(Icons.payments_rounded,
+                    color: AppTheme.accent),
+                suffixText: 'MRU',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            // Queue type selector
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'تُعرض لـ:',
+                style: GoogleFonts.cairo(
+                    fontSize: 12, color: AppTheme.textMuted),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                _queueChip('vip',    'VIP فقط', Icons.star_rounded,   const Color(0xFFFFB300)),
+                const SizedBox(width: 6),
+                _queueChip('both',   'الجميع',  Icons.people_rounded, AppTheme.success),
+                const SizedBox(width: 6),
+                _queueChip('normal', 'عادي فقط', Icons.person_rounded, AppTheme.accent),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('إلغاء', style: GoogleFonts.cairo()),
+          ),
+          ElevatedButton(
+            onPressed: _submit,
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent),
+            child: Text(isNew ? 'إضافة' : 'حفظ',
+                style: GoogleFonts.cairo()),
           ),
         ],
       ),

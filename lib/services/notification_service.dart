@@ -1,4 +1,7 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
@@ -8,6 +11,7 @@ class NotificationService {
   static Future<void> initialize() async {
     if (_initialized) return;
 
+    // ── Notifications locales ──────────────────────────────────────────────
     const androidSettings =
         AndroidInitializationSettings('@mipmap/launcher_icon');
     const iosSettings = DarwinInitializationSettings(
@@ -15,90 +19,114 @@ class NotificationService {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-
     await _plugin.initialize(
       const InitializationSettings(android: androidSettings, iOS: iosSettings),
     );
-
     await _plugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
 
+    // ── FCM : demande permission + écoute messages foreground ─────────────
+    try {
+      await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      // Quand l'app est ouverte, afficher la notification locale manuellement
+      FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
+        final n = msg.notification;
+        if (n != null) {
+          _show(
+            id: msg.hashCode,
+            title: n.title ?? '',
+            body: n.body ?? '',
+            channelId: _channelId(msg.data['type']),
+            channelName: _channelName(msg.data['type']),
+          );
+        }
+      });
+
+      // ── Sauvegarder le token FCM dans Supabase ───────────────────────────
+      await _saveToken();
+      FirebaseMessaging.instance.onTokenRefresh.listen((_) => _saveToken());
+    } catch (_) {
+      // FCM non disponible — les notifications locales fonctionnent toujours
+    }
+
     _initialized = true;
   }
 
-  // Sent to the customer when their position drops to 2 or 1.
-  static Future<void> notifyCustomerPosition(int position) async {
+  // ── Sauvegarde token ────────────────────────────────────────────────────
+
+  /// Appeler après chaque connexion réussie pour s'assurer que le token
+  /// est enregistré même si l'utilisateur vient de créer son compte.
+  static Future<void> saveTokenForUser(String userId) async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null) return;
+      await Supabase.instance.client
+          .from('users')
+          .update({'fcm_token': token})
+          .eq('id', userId);
+    } catch (_) {}
+  }
+
+  static Future<void> _saveToken() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('saved_user_id');
+      if (userId == null) return;
+      await Supabase.instance.client
+          .from('users')
+          .update({'fcm_token': token})
+          .eq('id', userId);
+    } catch (_) {
+      // Non bloquant — les notifications locales fonctionnent sans FCM
+    }
+  }
+
+  // ── Helpers canaux ──────────────────────────────────────────────────────
+
+  static String _channelId(String? type) =>
+      (type == 'new_customer' || type == 'paid_booking')
+          ? 'new_customer'
+          : 'queue_position';
+
+  static String _channelName(String? type) {
+    if (type == 'new_customer') return 'عملاء جدد';
+    if (type == 'paid_booking') return 'الحجوزات المدفوعة';
+    return 'موقعك في الطابور';
+  }
+
+  // ── Affichage notification locale ───────────────────────────────────────
+
+  static Future<void> _show({
+    required int id,
+    required String title,
+    required String body,
+    required String channelId,
+    required String channelName,
+    Importance importance = Importance.max,
+  }) async {
     if (!_initialized) return;
-
-    final bool isFirst = position == 1;
-    final title = isFirst ? 'حان دورك! 🎉' : 'استعد، أنت التالي!';
-    final body = isFirst
-        ? 'أنت الآن الأول في الطابور — توجه للكرسي الآن.'
-        : 'أنت في المرتبة الثانية، لم يتبقَّ سوى شخص واحد!';
-
     await _plugin.show(
-      position,
+      id,
       title,
       body,
-      const NotificationDetails(
+      NotificationDetails(
         android: AndroidNotificationDetails(
-          'queue_position',
-          'موقعك في الطابور',
-          channelDescription: 'إشعارات تغيير موقعك في طابور الانتظار',
-          importance: Importance.max,
+          channelId,
+          channelName,
+          importance: importance,
           priority: Priority.high,
           playSound: true,
         ),
-        iOS: DarwinNotificationDetails(),
-      ),
-    );
-  }
-
-  // Sent to the barber when a new customer joins their queue.
-  static Future<void> notifyBarberNewCustomer(String barberName) async {
-    if (!_initialized) return;
-
-    await _plugin.show(
-      100,
-      'عميل جديد في الطابور',
-      barberName.isNotEmpty
-          ? 'انضم عميل جديد إلى طابور $barberName'
-          : 'انضم عميل جديد إلى الطابور',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'new_customer',
-          'عملاء جدد',
-          channelDescription: 'إشعارات انضمام عملاء جدد للطابور',
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: true,
-        ),
-        iOS: DarwinNotificationDetails(),
-      ),
-    );
-  }
-
-  // Sent to the barber when a new paid booking request arrives.
-  static Future<void> notifyBarberNewPayment(String customerName) async {
-    if (!_initialized) return;
-    await _plugin.show(
-      200,
-      'طلب حجز مدفوع جديد 💰',
-      customerName.isNotEmpty
-          ? 'أرسل $customerName طلب حجز — راجع الإيصال وأكّد الدفع'
-          : 'وصل طلب حجز مدفوع جديد — راجع الإيصال وأكّد الدفع',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'paid_booking',
-          'الحجوزات المدفوعة',
-          channelDescription: 'إشعارات طلبات الحجز المدفوعة الواردة',
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-        ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
           presentSound: true,
@@ -107,24 +135,53 @@ class NotificationService {
     );
   }
 
-  // Position 3 notification (new — FCM triggers this for position 3 as well).
+  // ── Méthodes publiques (déclenchées par Realtime quand app ouverte) ─────
+
+  static Future<void> notifyCustomerPosition(int position) async {
+    final bool isFirst = position == 1;
+    await _show(
+      id: position,
+      title: isFirst ? 'حان دورك! 🎉' : 'استعد، أنت التالي!',
+      body: isFirst
+          ? 'أنت الآن الأول في الطابور — توجه للكرسي الآن.'
+          : 'أنت في المرتبة الثانية، لم يتبقَّ سوى شخص واحد!',
+      channelId: 'queue_position',
+      channelName: 'موقعك في الطابور',
+    );
+  }
+
   static Future<void> notifyCustomerPositionThree() async {
-    if (!_initialized) return;
-    await _plugin.show(
-      3,
-      'اقترب دورك',
-      'أنت في المرتبة الثالثة — استعد قريباً!',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'queue_position',
-          'موقعك في الطابور',
-          channelDescription: 'إشعارات تغيير موقعك في طابور الانتظار',
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: true,
-        ),
-        iOS: DarwinNotificationDetails(),
-      ),
+    await _show(
+      id: 3,
+      title: 'اقترب دورك',
+      body: 'أنت في المرتبة الثالثة — استعد قريباً!',
+      channelId: 'queue_position',
+      channelName: 'موقعك في الطابور',
+      importance: Importance.high,
+    );
+  }
+
+  static Future<void> notifyBarberNewCustomer(String barberName) async {
+    await _show(
+      id: 100,
+      title: 'عميل جديد في الطابور',
+      body: barberName.isNotEmpty
+          ? 'انضم عميل جديد إلى طابور $barberName'
+          : 'انضم عميل جديد إلى الطابور',
+      channelId: 'new_customer',
+      channelName: 'عملاء جدد',
+    );
+  }
+
+  static Future<void> notifyBarberNewPayment(String customerName) async {
+    await _show(
+      id: 200,
+      title: 'طلب حجز مدفوع جديد 💰',
+      body: customerName.isNotEmpty
+          ? 'أرسل $customerName طلب حجز — راجع الإيصال وأكّد الدفع'
+          : 'وصل طلب حجز مدفوع جديد — راجع الإيصال وأكّد الدفع',
+      channelId: 'new_customer',
+      channelName: 'الحجوزات المدفوعة',
     );
   }
 }

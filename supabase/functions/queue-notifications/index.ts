@@ -106,10 +106,10 @@ async function getFcmToken(userId: string): Promise<string | null> {
   return rows?.[0]?.fcm_token ?? null;
 }
 
-async function getBarberFcmToken(chairId: string): Promise<string | null> {
-  // chairs → barbers → users (barbers.user_id)
-  const chairRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/chairs?id=eq.${chairId}&select=barber_id`,
+async function getBarberFcmToken(barberId: string): Promise<string | null> {
+  // barbers table → find the user account whose barber_id matches (role='barber')
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/users?barber_id=eq.${barberId}&role=eq.barber&select=fcm_token`,
     {
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -117,29 +117,13 @@ async function getBarberFcmToken(chairId: string): Promise<string | null> {
       },
     },
   );
-  const chairs = await chairRes.json();
-  const barberId = chairs?.[0]?.barber_id;
-  if (!barberId) return null;
-
-  const barberRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/barbers?id=eq.${barberId}&select=user_id,name`,
-    {
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-    },
-  );
-  const barbers = await barberRes.json();
-  const userId = barbers?.[0]?.user_id;
-  if (!userId) return null;
-
-  return getFcmToken(userId);
+  const rows = await res.json();
+  return rows?.[0]?.fcm_token ?? null;
 }
 
-async function getChairName(chairId: string): Promise<string> {
+async function getBarberName(barberId: string): Promise<string> {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/chairs?id=eq.${chairId}&select=name`,
+    `${SUPABASE_URL}/rest/v1/barbers?id=eq.${barberId}&select=name`,
     {
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -160,17 +144,17 @@ serve(async (req) => {
 
     // ── INSERT on queues → notify barber ────────────────────────────────────
     if (type === 'INSERT' && table === 'queues') {
-      const chairId = record.chair_id;
-      const token = await getBarberFcmToken(chairId);
+      const barberId = record.barber_id;
+      const token = await getBarberFcmToken(barberId);
       if (token) {
-        const chairName = await getChairName(chairId);
+        const barberName = await getBarberName(barberId);
         await sendFcm(
           token,
           'عميل جديد في الطابور',
-          chairName
-            ? `انضم عميل جديد إلى طابور ${chairName}`
+          barberName
+            ? `انضم عميل جديد إلى طابور ${barberName}`
             : 'انضم عميل جديد إلى الطابور',
-          { type: 'new_customer', chair_id: chairId, chair_name: chairName },
+          { type: 'new_customer', barber_id: barberId, barber_name: barberName },
         );
       }
     }

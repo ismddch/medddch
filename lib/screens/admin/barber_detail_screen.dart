@@ -251,6 +251,207 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
     }
   }
 
+  Future<void> _viewBarberMenu(BarberModel barber) async {
+    List<BarberMenuItemModel> items;
+    try {
+      items = await _service.getBarberMenu(barber.id);
+    } catch (_) {
+      items = [];
+    }
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          maxChildSize: 0.9,
+          minChildSize: 0.3,
+          builder: (_, scrollCtrl) => Column(
+            children: [
+              // Handle
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.menu_book_rounded,
+                          color: AppTheme.accent, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'قائمة خدمات ${barber.name}',
+                            style: GoogleFonts.cairo(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          Text(
+                            items.isEmpty
+                                ? 'لا توجد خدمات'
+                                : '${items.length} خدمة',
+                            style: GoogleFonts.cairo(
+                                fontSize: 12,
+                                color: AppTheme.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Menu-applies-to badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _menuQueueTypeColor(barber.menuQueueType)
+                            .withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _menuQueueTypeColor(barber.menuQueueType)
+                              .withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Text(
+                        _menuQueueTypeLabel(barber.menuQueueType),
+                        style: GoogleFonts.cairo(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color:
+                              _menuQueueTypeColor(barber.menuQueueType),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // List
+              Expanded(
+                child: items.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.menu_book_outlined,
+                                size: 52,
+                                color: AppTheme.textMuted
+                                    .withValues(alpha: 0.3)),
+                            const SizedBox(height: 10),
+                            Text(
+                              'لم يُضِف الحلاق خدمات بعد',
+                              style: GoogleFonts.cairo(
+                                  color: AppTheme.textMuted,
+                                  fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final item = items[i];
+                          final priceStr = item.price ==
+                                  item.price.roundToDouble()
+                              ? item.price.toInt().toString()
+                              : item.price.toStringAsFixed(2);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 10),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: item.isAvailable
+                                        ? AppTheme.success
+                                        : AppTheme.textMuted,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    item.name,
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: item.isAvailable
+                                          ? AppTheme.primary
+                                          : AppTheme.textMuted,
+                                      decoration: item.isAvailable
+                                          ? null
+                                          : TextDecoration.lineThrough,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '$priceStr MRU',
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: item.isAvailable
+                                        ? AppTheme.accent
+                                        : AppTheme.textMuted,
+                                  ),
+                                  textDirection: TextDirection.ltr,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _menuQueueTypeColor(String type) {
+    switch (type) {
+      case 'vip':    return const Color(0xFFFFB300);
+      case 'normal': return AppTheme.accent;
+      default:       return AppTheme.success;
+    }
+  }
+
+  String _menuQueueTypeLabel(String type) {
+    switch (type) {
+      case 'vip':    return 'VIP فقط';
+      case 'normal': return 'عادي فقط';
+      default:       return 'الجميع';
+    }
+  }
+
   Future<bool> _showConfirmDialog({
     required String title,
     required String message,
@@ -344,7 +545,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                                     fit: BoxFit.cover,
                                   )
                                 : null,
-                            color: AppTheme.accent.withOpacity(0.2),
+                            color: AppTheme.accent.withValues(alpha: 0.2),
                           ),
                           child: shop.imageUrl == null
                               ? const Icon(Icons.store_rounded,
@@ -365,7 +566,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
+                            color: Colors.white.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
@@ -506,7 +707,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
                                   color:
-                                      AppTheme.accent.withOpacity(0.3),
+                                      AppTheme.accent.withValues(alpha: 0.3),
                                   width: 2,
                                 ),
                                 image: barber.imageUrl != null
@@ -516,7 +717,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                                         fit: BoxFit.cover,
                                       )
                                     : null,
-                                color: AppTheme.accent.withOpacity(0.1),
+                                color: AppTheme.accent.withValues(alpha: 0.1),
                               ),
                               child: barber.imageUrl == null
                                   ? const Icon(Icons.content_cut_rounded,
@@ -605,6 +806,16 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                               tooltip: barber.bookingCodeEnabled
                                   ? 'رمز الحجز مُفعَّل — اضغط للإدارة'
                                   : 'تفعيل رمز الحجز',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                  minWidth: 36, minHeight: 36),
+                            ),
+                            // ── Menu view button ──
+                            IconButton(
+                              icon: const Icon(Icons.menu_book_rounded,
+                                  color: AppTheme.accent, size: 20),
+                              onPressed: () => _viewBarberMenu(barber),
+                              tooltip: 'عرض قائمة الخدمات',
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
                                   minWidth: 36, minHeight: 36),
@@ -973,11 +1184,11 @@ class _CreateBarberAccountDialogState
               children: [
                 TextFormField(
                   controller: _nameCtrl,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     hintText: 'اسم الحلاق',
-                    prefixIcon: const Icon(Icons.person_outline,
+                    prefixIcon: Icon(Icons.person_outline,
                         color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
+                    contentPadding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                   ),
                   validator: (v) =>
@@ -988,11 +1199,11 @@ class _CreateBarberAccountDialogState
                   controller: _phoneCtrl,
                   keyboardType: TextInputType.phone,
                   textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     hintText: 'رقم الهاتف',
-                    prefixIcon: const Icon(Icons.phone_outlined,
+                    prefixIcon: Icon(Icons.phone_outlined,
                         color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
+                    contentPadding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                   ),
                   validator: (v) =>
@@ -1001,11 +1212,11 @@ class _CreateBarberAccountDialogState
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _passCtrl,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     hintText: 'كلمة المرور',
-                    prefixIcon: const Icon(Icons.lock_outline,
+                    prefixIcon: Icon(Icons.lock_outline,
                         color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
+                    contentPadding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                   ),
                   validator: (v) {
@@ -1274,7 +1485,7 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                               color: AppTheme.accent, width: 2.5),
-                          color: AppTheme.primary.withOpacity(0.05),
+                          color: AppTheme.primary.withValues(alpha: 0.05),
                           image: hasLocal
                               ? DecorationImage(
                                   image: MemoryImage(_pickedBytes!),
@@ -1352,11 +1563,11 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
                 TextFormField(
                   controller: _nameCtrl,
                   autofocus: !hasImage,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     hintText: 'اسم الحلاق (مثال: أحمد)',
-                    prefixIcon: const Icon(Icons.content_cut_rounded,
+                    prefixIcon: Icon(Icons.content_cut_rounded,
                         color: AppTheme.accent),
-                    contentPadding: const EdgeInsets.symmetric(
+                    contentPadding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                   ),
                   validator: (v) =>

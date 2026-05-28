@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -54,11 +55,18 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      if (user.isBlocked) {
+        _error = 'تم حظر هذا الحساب. تواصل مع الإدارة.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
       _user = user;
       _isLoading = false;
       notifyListeners();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_user_id', user.id);
+      NotificationService.saveTokenForUser(user.id);
       return true;
     } catch (e) {
       _error = 'خطأ في تسجيل الدخول: ${e.toString()}';
@@ -87,6 +95,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_user_id', _user!.id);
+      NotificationService.saveTokenForUser(_user!.id);
       return true;
     } catch (e) {
       _error = e.toString().replaceAll('Exception: ', '');

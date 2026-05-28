@@ -6,7 +6,11 @@ import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../services/notification_service.dart';
 import 'payment_booking_screen.dart';
+import 'service_selection_screen.dart';
 
 const int _kMinutesPerPerson = 45;
 
@@ -23,6 +27,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   final SupabaseService _service = SupabaseService();
   List<QueueEntryModel> _queue = [];
   List<String> _portfolioUrls = [];
+  List<BarberMenuItemModel> _menuItems = [];
   ShopModel? _shop;
   BarberModel? _barberState;
   bool _loading = true;
@@ -32,6 +37,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   bool _inQueue = false;
   bool _inOtherQueue = false;
   int? _myPosition;
+  int? _prevPosition; // tracks last known position to detect drops
   String? _myQueueType;
   PaymentRequestModel? _pendingPayment;
   RealtimeChannel? _subscription;
@@ -62,6 +68,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
         _service.getShopById(widget.barber.shopId),
         _service.getUserPendingPayment(user.id, widget.barber.id),
         _service.getBarberPortfolio(widget.barber.id),
+        _service.getAvailableBarberMenu(widget.barber.id),
       ]);
       final entry = await _service.getUserQueueEntry(user.id, widget.barber.id);
 
@@ -73,8 +80,10 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
           _shop          = results[3] as ShopModel?;
           _pendingPayment = results[4] as PaymentRequestModel?;
           _portfolioUrls = results[5] as List<String>;
+          _menuItems     = results[6] as List<BarberMenuItemModel>;
           _portfolioLoading = false;
 
+          final oldPos = _prevPosition;
           if (entry != null) {
             _myPosition  = entry['position']   as int?;
             _myQueueType = entry['queue_type'] as String?;
@@ -82,9 +91,19 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
             _myPosition  = null;
             _myQueueType = null;
           }
+          _prevPosition = _myPosition;
           _inQueue      = entry != null;
           _inOtherQueue = !_inQueue && inAny;
           _loading      = false;
+
+          // Notify customer when position drops to 3, 2, or 1 (skip initial load)
+          if (oldPos != null && _myPosition != null && _myPosition! < oldPos) {
+            if (_myPosition! == 3) {
+              NotificationService.notifyCustomerPositionThree();
+            } else if (_myPosition! <= 2) {
+              NotificationService.notifyCustomerPosition(_myPosition!);
+            }
+          }
         });
       }
     } catch (e) {
@@ -92,37 +111,100 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     }
   }
 
-  Future<void> _joinQueue(String queueType) async {
+  /// Unified handler for all join/book buttons.
+  ///
+  /// Both flows:  service menu (filtered by type) → booking code
+  ///              → payment screen (if shop.prepaymentEnabled) OR direct join
+  Future<void> _handleJoin(String queueType) async {
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
+    if (_shop == null) return;
 
-    // If this barber requires a booking code, prompt the customer first
     final barber = _barberState ?? widget.barber;
+
+    // ── Step 1: Service menu (both VIP and Normal, filtered by item type) ──
+    // VIP sees VIP + 'both' items; Normal sees Normal + 'both' items.
+    // Payment only applies to VIP (Step 3).
+    final applicableItems = _menuItems.where((item) =>
+        item.queueType == 'both' || item.queueType == queueType).toList();
+
+    List<Map<String, dynamic>>? selectedServices;
+    double? servicesTotal;
+
+    if (applicableItems.isNotEmpty) {
+      final menuResult = await Navigator.push<Map<String, dynamic>>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ServiceSelectionScreen(
+            barber: barber,
+            menuItems: applicableItems,
+            queueType: queueType,
+          ),
+        ),
+      );
+      if (menuResult == null) return; // user pressed back
+      final svcs = menuResult['services'] as List?;
+      if (svcs != null && svcs.isNotEmpty) {
+        selectedServices = svcs.cast<Map<String, dynamic>>();
+      }
+      servicesTotal = (menuResult['price'] as num?)?.toDouble();
+      if (servicesTotal == 0) servicesTotal = null;
+    }
+
+    // ── Step 2: Booking code ────────────────────────────────────
     String? bookingCode;
     if (barber.bookingCodeEnabled) {
       bookingCode = await _showBookingCodeDialog();
-      if (bookingCode == null) return; // user cancelled
+      if (bookingCode == null) return; // cancelled
     }
 
-    setState(() => _joining = true);
-    try {
-      await _service.joinQueue(
-        widget.barber.id,
-        user.id,
-        queueType: queueType,
-        bookingCode: bookingCode,
+    if (!mounted) return;
+
+    // ── Step 3: payment screen (if shop requires prepayment) for ALL types ─
+    // FIX (Bug 2): removed `queueType == 'vip'` guard — both VIP and Regular
+    // customers must go through the payment/booking screen when the shop has
+    // prepayment enabled.  The queue_type label (vip/normal) is still passed
+    // through so the barber can see which tier each customer booked under.
+    if (_shop!.prepaymentEnabled) {
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaymentBookingScreen(
+            barber: widget.barber,
+            shop: _shop!,
+            queueType: queueType,
+            prefilledAmount: servicesTotal,
+            selectedServices: selectedServices,
+          ),
+        ),
       );
-      await _loadQueue();
-      if (mounted) _showSnack('تم الانضمام للطابور بنجاح', AppTheme.success);
-    } catch (e) {
-      if (mounted) {
-        _showSnack(
-          e.toString().replaceAll('Exception: ', ''),
-          AppTheme.danger,
-        );
+      if (result == true && mounted) {
+        await _loadQueue();
+        _showSnack('تم إرسال طلب الحجز، انتظر الموافقة', AppTheme.accent);
       }
-    } finally {
-      if (mounted) setState(() => _joining = false);
+    } else {
+      setState(() => _joining = true);
+      try {
+        await _service.joinQueue(
+          widget.barber.id,
+          user.id,
+          queueType: queueType,
+          bookingCode: bookingCode,
+          selectedServices: selectedServices,
+          servicesTotal: servicesTotal,
+        );
+        await _loadQueue();
+        if (mounted) _showSnack('تم الانضمام للطابور بنجاح', AppTheme.success);
+      } catch (e) {
+        if (mounted) {
+          _showSnack(
+            e.toString().replaceAll('Exception: ', ''),
+            AppTheme.danger,
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _joining = false);
+      }
     }
   }
 
@@ -218,6 +300,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     );
   }
 
+
   Future<void> _leaveQueue() async {
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
@@ -279,23 +362,6 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     );
   }
 
-  Future<void> _openBookingScreen(String queueType) async {
-    if (_shop == null) return;
-    final result = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PaymentBookingScreen(
-          barber: widget.barber,
-          shop: _shop!,
-          queueType: queueType,
-        ),
-      ),
-    );
-    if (result == true) {
-      await _loadQueue();
-      if (mounted) _showSnack('تم إرسال طلب الحجز، انتظر الموافقة', AppTheme.accent);
-    }
-  }
 
   String _formatWaitTime(int minutes) {
     if (minutes <= 0) return 'دورك الآن!';
@@ -309,12 +375,12 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final barber = _barberState ?? widget.barber;
-    final vipEnabled = _shop?.vipEnabled ?? false;
-    final vipCount = _queue.where((e) => e.queueType == 'vip').length;
-    final normalCount = _queue.where((e) => e.queueType == 'normal').length;
+    final vipCount    = _queue.where((e) => e.queueType == 'vip').length;
     final inThisQueue = _myPosition != null;
     final peopleAhead = inThisQueue ? (_myPosition! - 1) : _queue.length;
     final estimatedMinutes = peopleAhead * _kMinutesPerPerson;
+
+    final tiktokUrl = barber.tiktokUrl;
 
     return Scaffold(
       appBar: AppBar(
@@ -323,6 +389,19 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
           icon: const Icon(Icons.arrow_back_ios_rounded),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (tiktokUrl != null && tiktokUrl.isNotEmpty)
+            IconButton(
+              tooltip: 'TikTok',
+              icon: const FaIcon(FontAwesomeIcons.tiktok, size: 20),
+              onPressed: () async {
+                final uri = Uri.tryParse(tiktokUrl);
+                if (uri != null && await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -376,25 +455,25 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                           ],
                         ),
                         const SizedBox(height: 14),
-                        // VIP / Normal count badges
+                        // Combined queue count + VIP indicator
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            if (vipEnabled) ...[
+                            _QueueCountBadge(
+                              label: 'الطابور',
+                              count: _queue.length,
+                              icon: Icons.people_rounded,
+                              color: AppTheme.accent,
+                            ),
+                            if (vipCount > 0) ...[
+                              const SizedBox(width: 10),
                               _QueueCountBadge(
                                 label: 'VIP',
                                 count: vipCount,
                                 icon: Icons.star_rounded,
                                 color: const Color(0xFFFFB300),
                               ),
-                              const SizedBox(width: 10),
                             ],
-                            _QueueCountBadge(
-                              label: 'عادي',
-                              count: normalCount,
-                              icon: Icons.people_rounded,
-                              color: AppTheme.accent,
-                            ),
                           ],
                         ),
                         // Booking-code required badge
@@ -534,84 +613,44 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                               ],
                             ),
                           ),
-                        ] else if (_shop?.prepaymentEnabled == true) ...[
-                          // Book buttons (prepayment flow)
-                          if (vipEnabled)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildJoinButton(
-                                    label: 'حجز VIP',
-                                    icon: Icons.star_rounded,
-                                    isLocked: barber.isVipLocked,
-                                    lockedLabel: 'VIP مغلق',
-                                    color: const Color(0xFFFFB300),
-                                    onPressed: () => _openBookingScreen('vip'),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildJoinButton(
-                                    label: 'حجز عادي',
-                                    icon: Icons.bookmark_added_rounded,
-                                    isLocked: barber.isNormalLocked,
-                                    lockedLabel: 'عادي مغلق',
-                                    color: AppTheme.accent,
-                                    onPressed: () => _openBookingScreen('normal'),
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            _buildJoinButton(
-                              label: 'احجز مكانك',
-                              icon: Icons.bookmark_added_rounded,
-                              isLocked: barber.isNormalLocked,
-                              lockedLabel: 'الطابور مغلق',
-                              color: AppTheme.accent,
-                              onPressed: () => _openBookingScreen('normal'),
-                            ),
                         ] else ...[
-                          // Direct join buttons
-                          if (vipEnabled)
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildJoinButton(
-                                    label: 'VIP',
-                                    icon: Icons.star_rounded,
-                                    isLocked: barber.isVipLocked,
-                                    lockedLabel: 'VIP مغلق',
-                                    color: const Color(0xFFFFB300),
-                                    onPressed: () => _joinQueue('vip'),
-                                  ),
+                          // ── Two booking buttons: VIP + Regular ────────
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildJoinButton(
+                                  label: 'احجز VIP',
+                                  icon: Icons.star_rounded,
+                                  isLocked: barber.isVipLocked,
+                                  lockedLabel: 'VIP مغلق',
+                                  color: const Color(0xFFFFB300),
+                                  onPressed: () => _handleJoin('vip'),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildJoinButton(
-                                    label: 'عادي',
-                                    icon: Icons.people_rounded,
-                                    isLocked: barber.isNormalLocked,
-                                    lockedLabel: 'عادي مغلق',
-                                    color: AppTheme.accent,
-                                    onPressed: () => _joinQueue('normal'),
-                                  ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildJoinButton(
+                                  label: 'طابور عادي',
+                                  icon: Icons.people_rounded,
+                                  isLocked: barber.isNormalLocked,
+                                  lockedLabel: 'مغلق',
+                                  color: AppTheme.accent,
+                                  onPressed: () => _handleJoin('normal'),
                                 ),
-                              ],
-                            )
-                          else
-                            _buildJoinButton(
-                              label: 'انضم للطابور',
-                              icon: Icons.people_rounded,
-                              isLocked: barber.isNormalLocked,
-                              lockedLabel: 'الطابور مغلق',
-                              color: AppTheme.accent,
-                              onPressed: () => _joinQueue('normal'),
-                            ),
+                              ),
+                            ],
+                          ),
                         ],
                       ],
                     ),
                   ),
+
+                  // ─── Menu Preview Section ──────────────────────
+                  // Show menu preview whenever items exist
+                  if (_menuItems.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    _buildMenuPreview(),
+                  ],
 
                   // ─── Portfolio Section ─────────────────────────
                   if (_portfolioLoading) ...[
@@ -628,6 +667,15 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
                     ),
                   ] else if (_portfolioUrls.isNotEmpty) ...[
                     const SizedBox(height: 28),
+                    // ─── App logo above work images ───────────
+                    Center(
+                      child: Image.asset(
+                        'assets/logo.png',
+                        height: 56,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Column(
@@ -986,6 +1034,215 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
       ),
     );
   }
+
+  // ─── Menu Preview ───────────────────────────────────────────
+  // Shown so customers can browse services before booking.
+  // Items are split into VIP and Regular sections by their queue_type.
+  Widget _buildMenuPreview() {
+    final vipItems    = _menuItems.where((i) => i.queueType == 'vip' || i.queueType == 'both').toList();
+    final normalItems = _menuItems.where((i) => i.queueType == 'normal' || i.queueType == 'both').toList();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Section header ──────────────────────────────
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.menu_book_rounded,
+                    color: AppTheme.accent, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'قائمة الخدمات',
+                style: GoogleFonts.cairo(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // ── VIP services ────────────────────────────────
+          if (vipItems.isNotEmpty) ...[
+            const _MenuSectionLabel(
+              label: 'خدمات VIP',
+              icon: Icons.star_rounded,
+              color: Color(0xFFFFB300),
+            ),
+            const SizedBox(height: 8),
+            _MenuServiceGroup(items: vipItems, accentColor: const Color(0xFFFFB300)),
+            const SizedBox(height: 16),
+          ],
+
+          // ── Regular services ─────────────────────────────
+          if (normalItems.isNotEmpty) ...[
+            const _MenuSectionLabel(
+              label: 'خدمات عادية',
+              icon: Icons.people_rounded,
+              color: AppTheme.accent,
+            ),
+            const SizedBox(height: 8),
+            _MenuServiceGroup(items: normalItems, accentColor: AppTheme.accent),
+          ],
+        ],
+      ),
+    );
+  }
+
+}
+
+// ─── Menu Section Label ───────────────────────────────────────
+class _MenuSectionLabel extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const _MenuSectionLabel({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: GoogleFonts.cairo(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Menu Service Group ───────────────────────────────────────
+class _MenuServiceGroup extends StatelessWidget {
+  final List<BarberMenuItemModel> items;
+  final Color accentColor;
+
+  const _MenuServiceGroup({
+    required this.items,
+    required this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < items.length; i++) ...[
+            if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
+            _ServiceRow(item: items[i], accentColor: accentColor),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceRow extends StatelessWidget {
+  final BarberMenuItemModel item;
+  final Color accentColor;
+
+  const _ServiceRow({required this.item, required this.accentColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final available = item.isAvailable;
+    final priceStr  = item.price == item.price.roundToDouble()
+        ? '${item.price.toInt()} MRU'
+        : '${item.price.toStringAsFixed(2)} MRU';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: available ? AppTheme.success : AppTheme.textMuted,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              item.name,
+              style: GoogleFonts.cairo(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: available ? AppTheme.primary : AppTheme.textMuted,
+                decoration: available ? null : TextDecoration.lineThrough,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: available
+                  ? accentColor.withValues(alpha: 0.1)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              priceStr,
+              style: GoogleFonts.cairo(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: available ? accentColor : AppTheme.textMuted,
+              ),
+              textDirection: TextDirection.ltr,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Queue Count Badge ────────────────────────────────────────
@@ -1249,3 +1506,4 @@ class _PortfolioViewerState extends State<_PortfolioViewer> {
     );
   }
 }
+

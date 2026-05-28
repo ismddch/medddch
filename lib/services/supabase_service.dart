@@ -209,14 +209,13 @@ class SupabaseService {
 
   // ─── QUEUE ────────────────────────────────────────────────
 
-  /// Get queue entries for a specific barber (staff), VIP first then by position.
+  /// Get queue entries for a specific barber ordered by join position (chronological).
   Future<List<QueueEntryModel>> getQueueForBarber(String barberId) async {
     final res = await _client
         .from('queues')
         .select('*, users(name, phone)')
         .eq('barber_id', barberId)
-        .order('queue_type', ascending: false)  // 'vip' > 'normal' alphabetically
-        .order('position', ascending: true);
+        .order('position', ascending: true); // global position = join order
 
     return (res as List).map((r) => QueueEntryModel.fromMap(r)).toList();
   }
@@ -289,8 +288,12 @@ class SupabaseService {
 
   /// Join a queue with specified type (vip or normal).
   /// [bookingCode] is required when the barber has booking_code_enabled = true.
+  /// [selectedServices] and [servicesTotal] capture menu selections made at booking time.
   Future<void> joinQueue(String barberId, String userId,
-      {String queueType = 'normal', String? bookingCode}) async {
+      {String queueType = 'normal',
+      String? bookingCode,
+      List<Map<String, dynamic>>? selectedServices,
+      double? servicesTotal}) async {
     // Check if already in any queue
     final inQueue = await isUserInQueue(userId);
     if (inQueue) {
@@ -323,12 +326,11 @@ class SupabaseService {
       }
     }
 
-    // Get next position within this queue type
+    // Get next global position (shared across ALL queue types for this barber)
     final posRes = await _client
         .from('queues')
         .select('position')
         .eq('barber_id', barberId)
-        .eq('queue_type', queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
@@ -337,20 +339,22 @@ class SupabaseService {
         posRes != null ? (posRes['position'] as int) + 1 : 1;
 
     await _client.from('queues').insert({
-      'barber_id': barberId,
-      'user_id': userId,
-      'position': nextPosition,
-      'queue_type': queueType,
+      'barber_id':          barberId,
+      'user_id':            userId,
+      'position':           nextPosition,
+      'queue_type':         queueType,
+      if (selectedServices != null && selectedServices.isNotEmpty)
+        'selected_services': selectedServices,
+      if (servicesTotal != null) 'services_total': servicesTotal,
     });
   }
 
-  /// Remove the first person in queue of a given type (for barber "Next" action).
-  Future<void> removeFirstInQueue(String barberId, String queueType) async {
+  /// Remove the next customer in queue (by global join position — no type priority).
+  Future<void> removeNextInQueue(String barberId) async {
     final first = await _client
         .from('queues')
         .select('id, barber_id, user_id, position, queue_type')
         .eq('barber_id', barberId)
-        .eq('queue_type', queueType)
         .order('position', ascending: true)
         .limit(1)
         .maybeSingle();
@@ -358,7 +362,7 @@ class SupabaseService {
     if (first != null) {
       await _saveDeletedEntry(first);
       await _client.from('queues').delete().eq('id', first['id']);
-      await _reorderQueue(barberId, queueType);
+      await _reorderAllQueue(barberId);
     }
   }
 
@@ -374,7 +378,7 @@ class SupabaseService {
     if (entry != null) {
       await _saveDeletedEntry(entry);
       await _client.from('queues').delete().eq('id', queueId);
-      await _reorderQueue(barberId, entry['queue_type'] as String);
+      await _reorderAllQueue(barberId);
     }
   }
 
@@ -389,7 +393,7 @@ class SupabaseService {
     if (entry == null) return;
 
     await _client.from('queues').delete().eq('id', entry['id']);
-    await _reorderQueue(entry['barber_id'], entry['queue_type'] as String);
+    await _reorderAllQueue(entry['barber_id'] as String);
   }
 
   /// Save a deleted entry for undo.
@@ -432,12 +436,11 @@ class SupabaseService {
     final barberId = lastDeleted['barber_id'] as String;
     final queueType = lastDeleted['queue_type'] as String? ?? 'normal';
 
-    // Shift all entries at or after the original position down by one (within same type)
+    // Shift all entries at or after the original position down by one (globally)
     final toShift = await _client
         .from('queues')
         .select('id, position')
         .eq('barber_id', barberId)
-        .eq('queue_type', queueType)
         .gte('position', originalPos)
         .order('position', ascending: false);
 
@@ -481,13 +484,12 @@ class SupabaseService {
     }
   }
 
-  /// Reorder queue positions after a removal, within a specific queue type.
-  Future<void> _reorderQueue(String barberId, String queueType) async {
+  /// Reorder all queue positions globally after a removal (across all types).
+  Future<void> _reorderAllQueue(String barberId) async {
     final entries = await _client
         .from('queues')
         .select('id')
         .eq('barber_id', barberId)
-        .eq('queue_type', queueType)
         .order('position', ascending: true);
 
     int pos = 1;
@@ -544,7 +546,9 @@ class SupabaseService {
 
   /// Add a customer to a barber's queue by phone number (existing account).
   Future<void> addCustomerToQueue(String barberId, String phone,
-      {String queueType = 'normal'}) async {
+      {String queueType = 'normal',
+      List<Map<String, dynamic>>? selectedServices,
+      double? servicesTotal}) async {
     final userRes = await _client
         .from('users')
         .select('id')
@@ -573,10 +577,13 @@ class SupabaseService {
     final nextPos = posRes != null ? (posRes['position'] as int) + 1 : 1;
 
     await _client.from('queues').insert({
-      'barber_id': barberId,
-      'user_id': userId,
-      'position': nextPos,
+      'barber_id':  barberId,
+      'user_id':    userId,
+      'position':   nextPos,
       'queue_type': queueType,
+      if (selectedServices != null && selectedServices.isNotEmpty)
+        'selected_services': selectedServices,
+      if (servicesTotal != null) 'services_total': servicesTotal,
     });
   }
 
@@ -588,6 +595,8 @@ class SupabaseService {
     required String phone,
     required String shopId,
     String queueType = 'normal',
+    List<Map<String, dynamic>>? selectedServices,
+    double? servicesTotal,
   }) async {
     // Check if phone already exists
     final existing = await _client
@@ -622,44 +631,45 @@ class SupabaseService {
       userId = res['id'] as String;
     }
 
-    // Get next position within this queue type
+    // FIX (Bug 1): global position across all queue types — same fix as joinQueue
+    // and approvePayment so every entry path respects chronological order.
     final posRes = await _client
         .from('queues')
         .select('position')
         .eq('barber_id', barberId)
-        .eq('queue_type', queueType)
+        // removed: .eq('queue_type', queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
     final nextPos = posRes != null ? (posRes['position'] as int) + 1 : 1;
 
     await _client.from('queues').insert({
-      'barber_id': barberId,
-      'user_id': userId,
-      'position': nextPos,
+      'barber_id':  barberId,
+      'user_id':    userId,
+      'position':   nextPos,
       'queue_type': queueType,
+      if (selectedServices != null && selectedServices.isNotEmpty)
+        'selected_services': selectedServices,
+      if (servicesTotal != null) 'services_total': servicesTotal,
     });
   }
 
   /// Auto-remove: tries VIP first, then Normal.
-  /// Returns true if someone was removed.
+  /// Returns true if someone was removed (chronologically first, no type priority).
   Future<bool> autoRemoveFirst(String barberId) async {
-    for (final type in ['vip', 'normal']) {
-      final first = await _client
-          .from('queues')
-          .select('id, barber_id, user_id, position, queue_type')
-          .eq('barber_id', barberId)
-          .eq('queue_type', type)
-          .order('position', ascending: true)
-          .limit(1)
-          .maybeSingle();
+    final first = await _client
+        .from('queues')
+        .select('id, barber_id, user_id, position, queue_type')
+        .eq('barber_id', barberId)
+        .order('position', ascending: true)
+        .limit(1)
+        .maybeSingle();
 
-      if (first != null) {
-        await _saveDeletedEntry(first);
-        await _client.from('queues').delete().eq('id', first['id']);
-        await _reorderQueue(barberId, type);
-        return true;
-      }
+    if (first != null) {
+      await _saveDeletedEntry(first);
+      await _client.from('queues').delete().eq('id', first['id']);
+      await _reorderAllQueue(barberId);
+      return true;
     }
     return false;
   }
@@ -1222,6 +1232,25 @@ class SupabaseService {
     await _client.from('users').delete().eq('id', userId);
   }
 
+  // ─── ADMIN USER MANAGEMENT ────────────────────────────────────
+
+  Future<List<UserModel>> getAllCustomers() async {
+    final res = await _client
+        .from('users')
+        .select()
+        .eq('role', 'customer')
+        .order('name', ascending: true);
+    return (res as List).map((r) => UserModel.fromMap(r)).toList();
+  }
+
+  Future<void> blockUser(String userId) async {
+    await _client.from('users').update({'is_blocked': true}).eq('id', userId);
+  }
+
+  Future<void> unblockUser(String userId) async {
+    await _client.from('users').update({'is_blocked': false}).eq('id', userId);
+  }
+
   // ─── PRODUCTS ─────────────────────────────────────────────
 
   Future<List<ProductModel>> getProducts(String shopId) async {
@@ -1277,16 +1306,19 @@ class SupabaseService {
     required String photoUrl,
     double? amount,
     String queueType = 'normal',
+    List<Map<String, dynamic>>? selectedServices,
   }) async {
     await _client.from('payment_requests').insert({
-      'user_id':     userId,
-      'barber_id':   barberId,
-      'shop_id':     shopId,
-      'wallet_type': walletType,
-      'photo_url':   photoUrl,
-      'amount':      amount,
-      'queue_type':  queueType,
-      'status':      'pending',
+      'user_id':           userId,
+      'barber_id':         barberId,
+      'shop_id':           shopId,
+      'wallet_type':       walletType,
+      'photo_url':         photoUrl,
+      'amount':            amount,
+      'queue_type':        queueType,
+      'status':            'pending',
+      if (selectedServices != null && selectedServices.isNotEmpty)
+        'selected_services': selectedServices,
     });
   }
 
@@ -1300,22 +1332,38 @@ class SupabaseService {
   }
 
   /// Approve a payment: add the customer to the barber's queue, then mark approved.
+  ///
+  /// FIX (Bug 1): position query is now GLOBAL — no longer filtered by queue_type.
+  /// Previously `.eq('queue_type', payment.queueType)` meant a VIP approval always
+  /// received position 1 (first in the VIP sub-count) even when Normal customers
+  /// had already joined the queue before them.
   Future<void> approvePayment(PaymentRequestModel payment) async {
     final posRes = await _client
         .from('queues')
         .select('position')
         .eq('barber_id', payment.barberId)
-        .eq('queue_type', payment.queueType)
+        // removed: .eq('queue_type', payment.queueType)
         .order('position', ascending: false)
         .limit(1)
         .maybeSingle();
     final nextPos = posRes != null ? (posRes['position'] as int) + 1 : 1;
+
+    // Calculate services total from selectedServices if not already stored
+    double? svcsTotal;
+    if (payment.selectedServices != null && payment.selectedServices!.isNotEmpty) {
+      svcsTotal = payment.selectedServices!.fold<double>(
+        0.0, (sum, s) => sum + ((s['price'] as num?)?.toDouble() ?? 0.0));
+    }
 
     await _client.from('queues').insert({
       'barber_id':  payment.barberId,
       'user_id':    payment.userId,
       'position':   nextPos,
       'queue_type': payment.queueType,
+      if (payment.selectedServices != null && payment.selectedServices!.isNotEmpty)
+        'selected_services': payment.selectedServices,
+      if (svcsTotal != null && svcsTotal > 0)
+        'services_total': svcsTotal,
     });
     await _client
         .from('payment_requests')
@@ -1344,6 +1392,13 @@ class SupabaseService {
     await _client
         .from('barbers')
         .update({'payment_number': number})
+        .eq('id', barberId);
+  }
+
+  Future<void> updateBarberTiktokUrl(String barberId, String? url) async {
+    await _client
+        .from('barbers')
+        .update({'tiktok_url': url?.isEmpty == true ? null : url})
         .eq('id', barberId);
   }
 
@@ -1449,5 +1504,92 @@ class SupabaseService {
       'barbers': (barbers as List).length,
       'inQueue': (queues as List).length,
     };
+  }
+
+  // ─── BARBER MENU ──────────────────────────────────────────────
+
+  /// Fetch all menu items for a barber, ordered by sort_order then created_at.
+  Future<List<BarberMenuItemModel>> getBarberMenu(String barberId) async {
+    try {
+      final res = await _client
+          .from('barber_menu_items')
+          .select()
+          .eq('barber_id', barberId)
+          .order('sort_order', ascending: true)
+          .order('created_at', ascending: true);
+      return (res as List).map((r) => BarberMenuItemModel.fromMap(r)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Fetch only available menu items for a barber (shown to customers).
+  Future<List<BarberMenuItemModel>> getAvailableBarberMenu(String barberId) async {
+    try {
+      final res = await _client
+          .from('barber_menu_items')
+          .select()
+          .eq('barber_id', barberId)
+          .eq('is_available', true)
+          .order('sort_order', ascending: true)
+          .order('created_at', ascending: true);
+      return (res as List).map((r) => BarberMenuItemModel.fromMap(r)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Add a new menu item.
+  Future<BarberMenuItemModel> addMenuItem({
+    required String barberId,
+    required String name,
+    required double price,
+    String queueType = 'both',
+  }) async {
+    final res = await _client
+        .from('barber_menu_items')
+        .insert({
+          'barber_id':    barberId,
+          'name':         name,
+          'price':        price,
+          'is_available': true,
+          'sort_order':   0,
+          'queue_type':   queueType,
+        })
+        .select()
+        .single();
+    return BarberMenuItemModel.fromMap(res);
+  }
+
+  /// Update an existing menu item (pass only fields you want to change).
+  Future<void> updateMenuItem({
+    required String id,
+    String? name,
+    double? price,
+    bool? isAvailable,
+    String? queueType,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (price != null) updates['price'] = price;
+    if (isAvailable != null) updates['is_available'] = isAvailable;
+    if (queueType != null) updates['queue_type'] = queueType;
+    if (updates.isEmpty) return;
+    await _client.from('barber_menu_items').update(updates).eq('id', id);
+  }
+
+  /// Delete a menu item.
+  Future<void> deleteMenuItem(String id) async {
+    await _client.from('barber_menu_items').delete().eq('id', id);
+  }
+
+  /// Update the queue type(s) for which the menu is shown to customers.
+  /// [queueType] must be one of: 'both', 'vip', 'normal'
+  Future<void> updateBarberMenuQueueType(
+      String barberId, String queueType) async {
+    await _client
+        .from('barbers')
+        .update({'menu_queue_type': queueType})
+        .eq('id', barberId);
   }
 }

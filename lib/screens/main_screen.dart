@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/auth_provider.dart';
+import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'shops_list_screen.dart';
 import 'all_barbers_screen.dart';
@@ -14,6 +17,9 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  final SupabaseService _service = SupabaseService();
+
+  // Start on home; will switch to favorites tab (index 1) if user has saved barbers.
   int _currentIndex = 0;
 
   final _screens = const [
@@ -23,6 +29,25 @@ class _MainScreenState extends State<MainScreen> {
     ShopsListScreen(),
     ProductsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFavorites();
+  }
+
+  Future<void> _checkFavorites() async {
+    final userId = context.read<AuthProvider>().user?.id;
+    if (userId == null) return;
+    try {
+      final ids = await _service.getFavoriteBarberIds(userId);
+      if (ids.isNotEmpty && mounted) {
+        setState(() => _currentIndex = 1);
+      }
+    } catch (_) {
+      // Non-fatal — stay on default home tab
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +74,8 @@ class _MainScreenState extends State<MainScreen> {
           ),
           NavigationDestination(
             icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
+            selectedIcon:
+                Icon(Icons.calendar_month_rounded, color: AppTheme.accent),
             label: 'حجزي',
           ),
           NavigationDestination(

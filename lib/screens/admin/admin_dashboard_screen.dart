@@ -9,6 +9,7 @@ import '../login_screen.dart';
 import '../products_screen.dart';
 import 'barber_form_screen.dart';
 import 'barber_detail_screen.dart';
+import 'user_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -569,6 +570,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         title: const Text('لوحة تحكم المدير'),
         automaticallyImplyLeading: false,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.people_rounded),
+            tooltip: 'إدارة المستخدمين',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const UserManagementScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.shopping_bag_outlined),
             onPressed: _openProductsPicker,
