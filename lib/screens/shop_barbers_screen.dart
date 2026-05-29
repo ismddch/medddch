@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
@@ -288,7 +289,7 @@ class _ShopBanner extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.location_on_rounded, color: Colors.white54, size: 13),
+                        const Icon(Icons.navigation_rounded, color: Colors.white54, size: 13),
                         const SizedBox(width: 4),
                         Flexible(
                           child: Text(
@@ -299,6 +300,39 @@ class _ShopBanner extends StatelessWidget {
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                  if (shop!.mapsUrl != null && shop!.mapsUrl!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () async {
+                        final uri = Uri.tryParse(shop!.mapsUrl!);
+                        if (uri != null && await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.map_rounded, color: Colors.white, size: 15),
+                            const SizedBox(width: 6),
+                            Text(
+                              'عرض على الخريطة',
+                              style: GoogleFonts.cairo(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 8),

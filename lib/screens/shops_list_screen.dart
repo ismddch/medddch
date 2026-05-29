@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
@@ -392,7 +393,7 @@ class _ShopCard extends StatelessWidget {
                       Row(
                         children: [
                           if (shop.address != null) ...[
-                            const Icon(Icons.location_on_rounded, color: Colors.white54, size: 13),
+                            const Icon(Icons.navigation_rounded, color: Colors.white54, size: 13),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -404,6 +405,37 @@ class _ShopCard extends StatelessWidget {
                             ),
                           ] else
                             const Spacer(),
+                          if (shop.mapsUrl != null && shop.mapsUrl!.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () async {
+                                final uri = Uri.tryParse(shop.mapsUrl!);
+                                if (uri != null && await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.map_rounded, color: Colors.white, size: 12),
+                                    const SizedBox(width: 4),
+                                    Text('خريطة',
+                                        style: GoogleFonts.cairo(
+                                            fontSize: 10,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                           // ─── CTA button ──────────────────────
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),

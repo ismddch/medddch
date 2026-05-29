@@ -7,6 +7,7 @@ class ShopModel {
   final String? imageUrl;
   final String? phone;
   final String? address;
+  final String? mapsUrl;
   final bool isActive;
   final bool vipEnabled;
   final bool prepaymentEnabled;
@@ -18,6 +19,7 @@ class ShopModel {
     this.imageUrl,
     this.phone,
     this.address,
+    this.mapsUrl,
     this.isActive = true,
     this.vipEnabled = false,
     this.prepaymentEnabled = false,
@@ -31,6 +33,7 @@ class ShopModel {
       imageUrl: map['image_url'],
       phone: map['phone'],
       address: map['address'],
+      mapsUrl: map['maps_url'],
       isActive: map['is_active'] ?? true,
       vipEnabled: map['vip_enabled'] ?? false,
       prepaymentEnabled: map['prepayment_enabled'] ?? false,
@@ -44,6 +47,7 @@ class ShopModel {
         'image_url': imageUrl,
         'phone': phone,
         'address': address,
+        'maps_url': mapsUrl,
         'is_active': isActive,
         'vip_enabled': vipEnabled,
         'prepayment_enabled': prepaymentEnabled,

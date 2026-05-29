@@ -27,6 +27,7 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
   late final TextEditingController _codeCtrl;
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _addressCtrl;
+  late final TextEditingController _mapsCtrl;
 
   bool _isEdit = false;
   bool _saving = false;
@@ -44,6 +45,7 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
     _codeCtrl = TextEditingController(text: widget.shop?.code ?? '');
     _phoneCtrl = TextEditingController(text: widget.shop?.phone ?? '');
     _addressCtrl = TextEditingController(text: widget.shop?.address ?? '');
+    _mapsCtrl   = TextEditingController(text: widget.shop?.mapsUrl ?? '');
     _imageUrl = widget.shop?.imageUrl;
   }
 
@@ -53,6 +55,7 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
     _codeCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
+    _mapsCtrl.dispose();
     super.dispose();
   }
 
@@ -104,24 +107,18 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
           shopId: widget.shop!.id,
           name: _nameCtrl.text.trim(),
           imageUrl: finalImageUrl,
-          phone: _phoneCtrl.text.trim().isEmpty
-              ? null
-              : _phoneCtrl.text.trim(),
-          address: _addressCtrl.text.trim().isEmpty
-              ? null
-              : _addressCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+          address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+          mapsUrl: _mapsCtrl.text.trim().isEmpty ? null : _mapsCtrl.text.trim(),
         );
       } else {
         await _service.createShop(
           name: _nameCtrl.text.trim(),
           code: _codeCtrl.text.trim().toUpperCase(),
           imageUrl: finalImageUrl,
-          phone: _phoneCtrl.text.trim().isEmpty
-              ? null
-              : _phoneCtrl.text.trim(),
-          address: _addressCtrl.text.trim().isEmpty
-              ? null
-              : _addressCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+          address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+          mapsUrl: _mapsCtrl.text.trim().isEmpty ? null : _mapsCtrl.text.trim(),
         );
       }
 
@@ -322,9 +319,30 @@ class _BarberFormScreenState extends State<BarberFormScreen> {
                 controller: _addressCtrl,
                 decoration: const InputDecoration(
                   hintText: 'مثال: شارع الملك فهد، الرياض',
-                  prefixIcon: Icon(Icons.location_on_outlined,
+                  prefixIcon: Icon(Icons.navigation_rounded,
                       color: AppTheme.accent),
                 ),
+              ),
+              const SizedBox(height: 20),
+
+              _buildLabel('رابط الموقع على خرائط Google (اختياري)'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _mapsCtrl,
+                textDirection: TextDirection.ltr,
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(
+                  hintText: 'https://maps.app.goo.gl/...',
+                  hintStyle: GoogleFonts.cairo(fontSize: 12),
+                  prefixIcon: const Icon(Icons.map_outlined, color: AppTheme.accent),
+                  suffixIcon: _mapsCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, size: 18),
+                          onPressed: () => setState(() => _mapsCtrl.clear()),
+                        )
+                      : null,
+                ),
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 36),
 

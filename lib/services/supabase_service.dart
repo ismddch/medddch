@@ -743,6 +743,7 @@ class SupabaseService {
     String? imageUrl,
     String? phone,
     String? address,
+    String? mapsUrl,
   }) async {
     // Ensure code uniqueness
     final existing = await _client
@@ -762,6 +763,7 @@ class SupabaseService {
           'image_url': imageUrl,
           'phone': phone,
           'address': address,
+          'maps_url': mapsUrl,
           'is_active': true,
         })
         .select()
@@ -776,9 +778,13 @@ class SupabaseService {
     String? imageUrl,
     String? phone,
     String? address,
+    String? mapsUrl,
     bool? isActive,
   }) async {
-    final updates = <String, dynamic>{'name': name};
+    final updates = <String, dynamic>{
+      'name': name,
+      'maps_url': mapsUrl, // always written so it can be cleared
+    };
     if (imageUrl != null) updates['image_url'] = imageUrl;
     if (phone != null) updates['phone'] = phone;
     if (address != null) updates['address'] = address;

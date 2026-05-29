@@ -596,7 +596,7 @@ class _BarberDetailScreenState extends State<BarberDetailScreen> {
                               const SizedBox(width: 16),
                             ],
                             if (shop.address != null) ...[
-                              const Icon(Icons.location_on_outlined,
+                              const Icon(Icons.navigation_rounded,
                                   color: Colors.white54, size: 14),
                               const SizedBox(width: 4),
                               Flexible(
@@ -1581,7 +1581,7 @@ class _BarberFormDialogState extends State<_BarberFormDialog> {
                   controller: _locationCtrl,
                   decoration: const InputDecoration(
                     hintText: 'الموقع / المنطقة (مثال: الرياض)',
-                    prefixIcon: Icon(Icons.location_on_outlined,
+                    prefixIcon: Icon(Icons.navigation_rounded,
                         color: AppTheme.accent),
                     contentPadding: EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),

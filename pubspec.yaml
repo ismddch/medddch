@@ -1,7 +1,7 @@
 name: barbershop_queue
 description: A barbershop queue booking mobile app with Supabase backend.
 publish_to: 'none'
-version: 1.0.9+26
+version: 1.0.10+28
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -36,8 +36,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/icon.jpeg" # Chemin vers votre image
-  min_sdk_android: 21 # Optionnel
+  image_path: "assets/icon.jpeg"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0D0D2B"
+  adaptive_icon_foreground: "assets/icon.jpeg"
 
 flutter:
   uses-material-design: true

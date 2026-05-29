@@ -381,6 +381,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
     final estimatedMinutes = peopleAhead * _kMinutesPerPerson;
 
     final tiktokUrl = barber.tiktokUrl;
+    final mapsUrl   = _shop?.mapsUrl;
 
     return Scaffold(
       appBar: AppBar(
@@ -390,6 +391,17 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (mapsUrl != null && mapsUrl.isNotEmpty)
+            IconButton(
+              tooltip: 'الموقع على الخريطة',
+              icon: const Icon(Icons.map_rounded),
+              onPressed: () async {
+                final uri = Uri.tryParse(mapsUrl);
+                if (uri != null && await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
           if (tiktokUrl != null && tiktokUrl.isNotEmpty)
             IconButton(
               tooltip: 'TikTok',

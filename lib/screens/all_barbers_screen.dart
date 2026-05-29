@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
@@ -1317,16 +1318,35 @@ class _DetailsSheetState extends State<_DetailsSheet> {
   final _service = SupabaseService();
   List<String> _photos = [];
   bool _photosLoading = true;
+  ShopModel? _shop;
 
   @override
   void initState() {
     super.initState();
     _loadPhotos();
+    _loadShop();
   }
 
   Future<void> _loadPhotos() async {
     final photos = await _service.getBarberPortfolio(widget.barber.id);
     if (mounted) setState(() { _photos = photos; _photosLoading = false; });
+  }
+
+  Future<void> _loadShop() async {
+    final shop = await _service.getShopById(widget.barber.shopId);
+    if (mounted) setState(() => _shop = shop);
+  }
+
+  Future<void> _launchPhone(String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
+  Future<void> _launchMap(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   void _openPhoto(int index) {
@@ -1407,7 +1427,15 @@ class _DetailsSheetState extends State<_DetailsSheet> {
                             style: GoogleFonts.cairo(fontSize: 13, color: AppTheme.textMuted)),
                       ],
                     ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
+                  // ── Contact / Location info ────────────────────
+                  _ContactInfo(
+                    location: barber.location,
+                    shop: _shop,
+                    onCall: (p) => _launchPhone(p),
+                    onMap: (u) => _launchMap(u),
+                  ),
+                  const SizedBox(height: 14),
                   // ── Stats chips ───────────────────────────────
                   Row(children: [
                     _Chip(
@@ -1631,6 +1659,218 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         ),
       ),
     );
+  }
+}
+
+// ─── Contact / Location card shown inside the Details bottom sheet ────────────
+class _ContactInfo extends StatelessWidget {
+  final String? location;
+  final ShopModel? shop;
+  final void Function(String) onCall;
+  final void Function(String) onMap;
+
+  const _ContactInfo({
+    required this.location,
+    required this.shop,
+    required this.onCall,
+    required this.onMap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final phone   = shop?.phone;
+    final mapsUrl = shop?.mapsUrl;
+    final hasAny  = location != null || phone != null || (mapsUrl != null && mapsUrl.isNotEmpty);
+
+    // While shop is still loading (shop==null) and barber has no location,
+    // show a subtle skeleton so the user knows data is coming.
+    if (shop == null && location == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20, height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    if (!hasAny) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(
+        children: [
+          // ── Location text row ──────────────────────────────
+          if (location != null)
+            _InfoRow(
+              icon: Icons.navigation_rounded,
+              iconColor: AppTheme.accent,
+              label: 'الموقع',
+              value: location!,
+              isFirst: true,
+              isLast: phone == null && (mapsUrl == null || mapsUrl.isEmpty),
+            ),
+
+          // ── Phone call button ──────────────────────────────
+          if (phone != null)
+            _InfoRow(
+              icon: Icons.phone_rounded,
+              iconColor: AppTheme.success,
+              label: 'رقم الهاتف',
+              value: phone,
+              isFirst: location == null,
+              isLast: mapsUrl == null || mapsUrl.isEmpty,
+              onTap: () => onCall(phone),
+              actionIcon: Icons.call_rounded,
+              actionColor: AppTheme.success,
+              actionLabel: 'اتصال',
+            ),
+
+          // ── Maps button ────────────────────────────────────
+          if (mapsUrl != null && mapsUrl.isNotEmpty)
+            _InfoRow(
+              icon: Icons.map_rounded,
+              iconColor: const Color(0xFF1A73E8),
+              label: 'الموقع على الخريطة',
+              value: 'افتح في خرائط Google',
+              isFirst: location == null && phone == null,
+              isLast: true,
+              onTap: () => onMap(mapsUrl),
+              actionIcon: Icons.open_in_new_rounded,
+              actionColor: const Color(0xFF1A73E8),
+              actionLabel: 'فتح',
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final bool isFirst;
+  final bool isLast;
+  final VoidCallback? onTap;
+  final IconData? actionIcon;
+  final Color? actionColor;
+  final String? actionLabel;
+
+  const _InfoRow({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.isFirst,
+    required this.isLast,
+    this.onTap,
+    this.actionIcon,
+    this.actionColor,
+    this.actionLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.only(
+      topLeft:     isFirst ? const Radius.circular(18) : Radius.zero,
+      topRight:    isFirst ? const Radius.circular(18) : Radius.zero,
+      bottomLeft:  isLast  ? const Radius.circular(18) : Radius.zero,
+      bottomRight: isLast  ? const Radius.circular(18) : Radius.zero,
+    );
+
+    Widget content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: GoogleFonts.cairo(
+                        fontSize: 11, color: AppTheme.textMuted,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(value,
+                    style: GoogleFonts.cairo(
+                        fontSize: 13, color: AppTheme.primary,
+                        fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          if (actionIcon != null && actionLabel != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: actionColor!.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(actionIcon!, color: actionColor!, size: 14),
+                  const SizedBox(width: 4),
+                  Text(actionLabel!,
+                      style: GoogleFonts.cairo(
+                          fontSize: 11, color: actionColor!,
+                          fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    if (!isLast) {
+      content = Column(
+        children: [
+          content,
+          const Divider(height: 1, indent: 16, endIndent: 16),
+        ],
+      );
+    }
+
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: content,
+        ),
+      );
+    }
+
+    return content;
   }
 }
 
