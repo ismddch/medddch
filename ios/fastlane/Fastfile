@@ -1,61 +1,66 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Archive, sign and upload to TestFlight using manual codesigning"
+  desc "Archive, sign and upload to TestFlight"
   lane :beta do
 
-    # ── App Store Connect API key ───────────────────────────────────────────
+    # ── 1. App Store Connect API authentication ─────────────────────────────
     api_key = app_store_connect_api_key(
-      key_id:       ENV["APPSTORE_KEY_ID"],
-      issuer_id:    ENV["APPSTORE_ISSUER_ID"],
+      key_id:       ENV.fetch("APPSTORE_KEY_ID"),
+      issuer_id:    ENV.fetch("APPSTORE_ISSUER_ID"),
       key_filepath: "/tmp/AuthKey.p8",
       duration:     1200,
-      in_house:     false
+      in_house:     false,
     )
 
-    # ── Switch project to manual signing ───────────────────────────────────
+    # ── 2. Manual code signing ───────────────────────────────────────────────
     update_code_signing_settings(
       use_automatic_signing: false,
       path:                  "Runner.xcodeproj",
-      team_id:               ENV["TEAM_ID"],
+      team_id:               ENV.fetch("TEAM_ID"),
       code_sign_identity:    "iPhone Distribution",
-      profile_name:          ENV["PROVISIONING_PROFILE_NAME"],
-      bundle_identifier:     ENV["APP_IDENTIFIER"]
+      profile_name:          ENV.fetch("PROVISIONING_PROFILE_NAME"),
+      bundle_identifier:     ENV.fetch("APP_IDENTIFIER"),
     )
 
-    # ── Build and archive ───────────────────────────────────────────────────
+    # ── 3. Archive and export IPA ────────────────────────────────────────────
+    # __dir__ is the fastlane/ folder; ../build/ is the ios/build/ folder.
+    build_dir = File.expand_path("../build", __dir__)
+    FileUtils.mkdir_p(build_dir)
+
     build_app(
       workspace:        "Runner.xcworkspace",
       scheme:           "Runner",
       configuration:    "Release",
-      clean:            true,
+      clean:            false,
       export_method:    "app-store",
       export_options: {
-        method:       "app-store",
-        teamID:       ENV["TEAM_ID"],
-        signingStyle: "manual",
+        method:        "app-store",
+        teamID:        ENV.fetch("TEAM_ID"),
+        signingStyle:  "manual",
         provisioningProfiles: {
-          ENV["APP_IDENTIFIER"] => ENV["PROVISIONING_PROFILE_NAME"]
-        }
+          ENV.fetch("APP_IDENTIFIER") => ENV.fetch("PROVISIONING_PROFILE_NAME"),
+        },
       },
-      output_directory: "build",
-      output_name:      "Hallaqak.ipa"
+      output_directory: build_dir,
+      output_name:      "Hallaqak.ipa",
     )
 
-    # ── Verify IPA exists before upload ────────────────────────────────────
-    ipa_path = File.expand_path("build/Hallaqak.ipa")
-    UI.important "IPA path: #{ipa_path}"
-    UI.user_error! "IPA not found at #{ipa_path}" unless File.exist?(ipa_path)
-    UI.success "IPA size: #{(File.size(ipa_path) / 1_048_576.0).round(1)} MB"
+    # ── 4. Confirm IPA — use the path Fastlane recorded, not our own string ──
+    ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH]
+    UI.message("IPA path (from lane_context): #{ipa_path}")
+    UI.user_error!("IPA not found at #{ipa_path}") unless File.exist?(ipa_path)
+    UI.success("IPA ready: #{(File.size(ipa_path) / 1_048_576.0).round(1)} MB")
 
-    # ── Upload to TestFlight ────────────────────────────────────────────────
+    # ── 5. Upload to TestFlight ──────────────────────────────────────────────
     upload_to_testflight(
       api_key:                           api_key,
-      app_identifier:                    ENV["APP_IDENTIFIER"],
+      app_identifier:                    ENV.fetch("APP_IDENTIFIER"),
       ipa:                               ipa_path,
       skip_waiting_for_build_processing: true,
-      submit_beta_review:                false,
-      notify_external_testers:           false
+      reject_build_waiting_for_review:   false,
     )
+
+    UI.success("✅ Uploaded to TestFlight!")
   end
 end
