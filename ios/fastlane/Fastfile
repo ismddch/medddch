@@ -47,8 +47,10 @@ platform :ios do
     # ── Upload to TestFlight ────────────────────────────────────────────────
     upload_to_testflight(
       api_key:                           api_key,
+      ipa:                               "build/Hallaqak.ipa",
       skip_waiting_for_build_processing: true,
-      distribute_external:               false
+      submit_beta_review:                false,
+      notify_external_testers:           false
     )
   end
 end
