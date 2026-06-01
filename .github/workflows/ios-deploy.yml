@@ -52,11 +52,23 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      # ── 8. Flutter iOS build (no signing — Fastlane signs) ───────────────────
+      # ── 8. Inject team ID so flutter build accepts --no-codesign ────────────
+      # Newer Flutter (SPM integration) requires DEVELOPMENT_TEAM even for
+      # unsigned builds. We patch project.pbxproj before flutter build runs.
+      - name: Set Development Team in Xcode project
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          perl -i -pe \
+            "s/DEVELOPMENT_TEAM = [^;]*/DEVELOPMENT_TEAM = $TEAM_ID/g" \
+            ios/Runner.xcodeproj/project.pbxproj
+          echo "✅ DEVELOPMENT_TEAM set to $TEAM_ID"
+
+      # ── 9. Flutter iOS build (no signing — Fastlane signs) ───────────────────
       - name: flutter build ios --release --no-codesign
         run: flutter build ios --release --no-codesign
 
-      # ── 9. Distribution certificate → keychain ────────────────────────────────
+      # ── 10. Distribution certificate → keychain ───────────────────────────────
       - name: Import certificate
         env:
           CERT_B64:  ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
@@ -75,7 +87,7 @@ jobs:
             -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" ci.keychain
           rm /tmp/cert.p12
 
-      # ── 10. Provisioning profile ──────────────────────────────────────────────
+      # ── 11. Provisioning profile ──────────────────────────────────────────────
       - name: Install provisioning profile
         env:
           PROFILE_B64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
@@ -89,13 +101,13 @@ jobs:
           rm /tmp/pp.mobileprovision /tmp/pp.plist
           echo "Profile $UUID installed"
 
-      # ── 11. App Store Connect API key ─────────────────────────────────────────
+      # ── 12. App Store Connect API key ─────────────────────────────────────────
       - name: Write AuthKey.p8
         env:
           KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: printf '%s' "$KEY" > /tmp/AuthKey.p8
 
-      # ── 12. Fastlane: archive + sign + upload ─────────────────────────────────
+      # ── 13. Fastlane: archive + sign + upload ─────────────────────────────────
       - name: Fastlane beta
         working-directory: ios
         env:
@@ -107,12 +119,12 @@ jobs:
           FASTLANE_HIDE_CHANGELOG:   "1"
         run: bundle exec fastlane beta 2>&1 | tee /tmp/fl.log; exit ${PIPESTATUS[0]}
 
-      # ── 13. Show error details on failure ────────────────────────────────────
+      # ── 14. Show error details on failure ────────────────────────────────────
       - name: Show Fastlane log
         if: failure()
         run: tail -200 /tmp/fl.log 2>/dev/null || true
 
-      # ── 14. Cleanup ───────────────────────────────────────────────────────────
+      # ── 15. Cleanup ───────────────────────────────────────────────────────────
       - name: Cleanup
         if: always()
         run: |
