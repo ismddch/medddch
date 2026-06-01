@@ -69,7 +69,8 @@ class BarberModel {
   int queueLength;
   int likeCount;                 // total likes from barber_likes table
   String? shopName;              // denormalised shop name for ranking screens
-  String? paymentNumber;         // account/wallet number customers send money to
+  String? paymentNumber;              // legacy single payment number (kept for compat)
+  Map<String, String> walletNumbers;  // per-wallet account numbers, e.g. {'Bankily':'123'}
   String? location;              // city/area set by admin for filtering
   String? tiktokUrl;             // TikTok profile link
 
@@ -87,6 +88,7 @@ class BarberModel {
     this.likeCount = 0,
     this.shopName,
     this.paymentNumber,
+    this.walletNumbers = const {},
     this.location,
     this.tiktokUrl,
   });
@@ -114,6 +116,10 @@ class BarberModel {
       likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
       shopName:      shop?['name'],
       paymentNumber: map['payment_number'],
+      walletNumbers: Map<String, String>.from(
+        ((map['wallet_numbers'] as Map<String, dynamic>?) ?? {})
+            .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+      ),
       location:      map['location'],
       tiktokUrl:     map['tiktok_url'],
     );

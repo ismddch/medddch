@@ -170,7 +170,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => PaymentBookingScreen(
-            barber: widget.barber,
+            barber: _barberState ?? widget.barber,
             shop: _shop!,
             queueType: queueType,
             prefilledAmount: servicesTotal,

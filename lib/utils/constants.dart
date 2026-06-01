@@ -9,3 +9,13 @@ class AppConstants {
   static const String appName = 'حلاقك';
   static const String appNameEn = 'Halaqak';
 }
+
+/// Supported payment wallets — single source of truth used by both
+/// the barber panel (to set account numbers) and the customer payment
+/// screen (to display the correct number when a wallet is selected).
+const List<Map<String, String>> kWallets = [
+  {'key': 'Bankily', 'label': 'Bankily'},
+  {'key': 'Sedad',   'label': 'Sedad'},
+  {'key': 'Masrvi',  'label': 'Masrvi'},
+  {'key': 'Click',   'label': 'Click'},
+];

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:share_plus/share_plus.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,7 @@ import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
+import '../utils/constants.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
 
@@ -253,49 +255,118 @@ class _BarberScreenState extends State<BarberScreen> {
     } catch (_) {}
   }
 
-  Future<void> _editPaymentNumber() async {
-    final ctrl =
-        TextEditingController(text: _barber?.paymentNumber ?? '');
-    final result = await showDialog<String>(
+  Future<void> _addWallet() async {
+    if (_barber == null) return;
+    // Wallets not yet configured by this barber
+    final available = kWallets
+        .where((w) => !(_barber!.walletNumbers.containsKey(w['key']!)))
+        .toList();
+
+    String? pickedKey;
+    String? pickedLabel;
+
+    // Let the barber pick which wallet to add
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                      color: AppTheme.divider,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text('اختر المحفظة',
+                  style: GoogleFonts.cairo(
+                      fontSize: 16, fontWeight: FontWeight.w800,
+                      color: AppTheme.primary)),
+              const SizedBox(height: 16),
+              if (available.isEmpty)
+                Center(
+                  child: Text('تمت إضافة جميع المحافظ المتاحة',
+                      style: GoogleFonts.cairo(
+                          fontSize: 13, color: AppTheme.textMuted)),
+                )
+              else
+                ...available.map((w) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.account_balance_wallet_rounded,
+                            color: AppTheme.accent, size: 20),
+                      ),
+                      title: Text(w['label']!,
+                          style: GoogleFonts.cairo(
+                              fontWeight: FontWeight.w700, fontSize: 14)),
+                      trailing: const Icon(Icons.chevron_left_rounded),
+                      onTap: () {
+                        pickedKey   = w['key'];
+                        pickedLabel = w['label'];
+                        Navigator.pop(ctx);
+                      },
+                    )),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (pickedKey == null || pickedLabel == null) return;
+    // Now ask for the account number
+    await _editWalletNumber(pickedKey!, pickedLabel!);
+  }
+
+  Future<void> _deleteWallet(String walletKey, String walletLabel) async {
+    if (_barber == null) return;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20)),
-          title: Text('رقم الدفع',
-              style:
-                  GoogleFonts.cairo(fontWeight: FontWeight.w700)),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            keyboardType: TextInputType.phone,
-            textDirection: TextDirection.ltr,
-            decoration: const InputDecoration(
-              hintText: 'رقم الحساب أو المحفظة',
-              prefixIcon: Icon(
-                  Icons.account_balance_wallet_rounded,
-                  color: AppTheme.accent),
-            ),
+          title: Text('حذف المحفظة',
+              style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+          content: Text(
+            'هل تريد إزالة "$walletLabel" من قائمة طرق الدفع؟',
+            style: GoogleFonts.cairo(),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => Navigator.pop(ctx, false),
               child: Text('إلغاء', style: GoogleFonts.cairo()),
             ),
             ElevatedButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, ctrl.text.trim()),
-              child: Text('حفظ', style: GoogleFonts.cairo()),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.danger),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('حذف', style: GoogleFonts.cairo()),
             ),
           ],
         ),
       ),
     );
-    ctrl.dispose();
-    if (result == null || result.isEmpty || _barber == null) return;
+    if (confirmed != true) return;
+    final updated = Map<String, String>.from(_barber!.walletNumbers)
+      ..remove(walletKey);
     try {
-      await _service.updateBarberPaymentNumber(_barber!.id, result);
+      await _service.updateBarberWalletNumbers(_barber!.id, updated);
       if (mounted) {
         setState(() => _barber = BarberModel(
               id: _barber!.id,
@@ -306,13 +377,87 @@ class _BarberScreenState extends State<BarberScreen> {
               isVipLocked: _barber!.isVipLocked,
               isNormalLocked: _barber!.isNormalLocked,
               queueLength: _barber!.queueLength,
-              paymentNumber: result,
+              paymentNumber: _barber!.paymentNumber,
+              walletNumbers: updated,
+              tiktokUrl: _barber!.tiktokUrl,
             ));
-        _showMessage('تم حفظ رقم الدفع');
+        _showMessage('تم حذف $walletLabel');
       }
     } catch (e) {
-      _showMessage(e.toString().replaceAll('Exception: ', ''),
-          isError: true);
+      _showMessage(e.toString().replaceAll('Exception: ', ''), isError: true);
+    }
+  }
+
+  Future<void> _editWalletNumber(String walletKey, String walletLabel) async {
+    if (_barber == null) return;
+    final current = _barber!.walletNumbers[walletKey] ?? '';
+    final ctrl = TextEditingController(text: current);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text('رقم حساب $walletLabel',
+              style: GoogleFonts.cairo(fontWeight: FontWeight.w700)),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            keyboardType: TextInputType.phone,
+            textDirection: TextDirection.ltr,
+            decoration: InputDecoration(
+              hintText: 'أدخل رقم الحساب',
+              prefixIcon: const Icon(Icons.account_balance_wallet_rounded,
+                  color: AppTheme.accent),
+              suffixIcon: ctrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      onPressed: () => ctrl.clear(),
+                    )
+                  : null,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('إلغاء', style: GoogleFonts.cairo()),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: Text('حفظ', style: GoogleFonts.cairo()),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (result == null || _barber == null) return;
+    final updated = Map<String, String>.from(_barber!.walletNumbers);
+    if (result.isEmpty) {
+      updated.remove(walletKey);
+    } else {
+      updated[walletKey] = result;
+    }
+    try {
+      await _service.updateBarberWalletNumbers(_barber!.id, updated);
+      if (mounted) {
+        setState(() => _barber = BarberModel(
+              id: _barber!.id,
+              shopId: _barber!.shopId,
+              name: _barber!.name,
+              imageUrl: _barber!.imageUrl,
+              isClosed: _barber!.isClosed,
+              isVipLocked: _barber!.isVipLocked,
+              isNormalLocked: _barber!.isNormalLocked,
+              queueLength: _barber!.queueLength,
+              paymentNumber: _barber!.paymentNumber,
+              walletNumbers: updated,
+              tiktokUrl: _barber!.tiktokUrl,
+            ));
+        _showMessage(result.isEmpty ? 'تم حذف الرقم' : 'تم حفظ رقم الحساب');
+      }
+    } catch (e) {
+      _showMessage(e.toString().replaceAll('Exception: ', ''), isError: true);
     }
   }
 
@@ -1128,11 +1273,10 @@ class _BarberScreenState extends State<BarberScreen> {
     if (barber == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    final hasNumber = barber.paymentNumber?.isNotEmpty == true;
 
     return Column(
       children: [
-        // ── Payment number header ────────────────────
+        // ── Per-wallet account numbers header ─────────
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
@@ -1144,53 +1288,125 @@ class _BarberScreenState extends State<BarberScreen> {
             ),
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('رقم الحساب للدفع',
-                  style: GoogleFonts.cairo(
-                      fontSize: 12, color: Colors.white60)),
-              const SizedBox(height: 8),
-              if (hasNumber) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      barber.paymentNumber!,
+              Row(
+                children: [
+                  const Icon(Icons.account_balance_wallet_rounded,
+                      color: Colors.white60, size: 16),
+                  const SizedBox(width: 8),
+                  Text('أرقام الحسابات حسب المحفظة',
                       style: GoogleFonts.cairo(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.accent,
-                        letterSpacing: 3,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // ── Active wallets ──────────────────────────
+              if (barber.walletNumbers.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: Text(
+                      'لم تضف أي محفظة بعد\nاضغط على "إضافة محفظة" للبدء',
+                      style: GoogleFonts.cairo(
+                          fontSize: 12,
+                          color: Colors.white30,
+                          height: 1.6),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              else
+                ...barber.walletNumbers.entries.map((entry) {
+                  final key    = entry.key;
+                  final number = entry.value;
+                  final label  = kWallets.firstWhere(
+                    (w) => w['key'] == key,
+                    orElse: () => {'key': key, 'label': key},
+                  )['label']!;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 11),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppTheme.accent.withValues(alpha: 0.5),
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded,
-                          color: Colors.white54, size: 20),
-                      tooltip: 'نسخ',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(
-                            text: barber.paymentNumber!));
-                        _showMessage('تم نسخ رقم الحساب');
-                      },
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 70,
+                          child: Text(label,
+                              style: GoogleFonts.cairo(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(number,
+                              style: GoogleFonts.cairo(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppTheme.accent,
+                                  letterSpacing: 2),
+                              textDirection: TextDirection.ltr),
+                        ),
+                        // Copy
+                        IconButton(
+                          icon: const Icon(Icons.copy_rounded,
+                              color: Colors.white38, size: 18),
+                          tooltip: 'نسخ',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: number));
+                            _showMessage('تم نسخ رقم $label');
+                          },
+                        ),
+                        // Edit
+                        IconButton(
+                          icon: const Icon(Icons.edit_rounded,
+                              color: Colors.white54, size: 18),
+                          tooltip: 'تعديل',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
+                          onPressed: () => _editWalletNumber(key, label),
+                        ),
+                        // Delete
+                        IconButton(
+                          icon: Icon(Icons.delete_rounded,
+                              color: AppTheme.danger.withValues(alpha: 0.7),
+                              size: 18),
+                          tooltip: 'حذف',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
+                          onPressed: () => _deleteWallet(key, label),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_rounded,
-                          color: Colors.white38, size: 18),
-                      tooltip: 'تعديل',
-                      onPressed: _editPaymentNumber,
-                    ),
-                  ],
-                ),
-                Text('العملاء يحولون الدفع لهذا الرقم',
-                    style: GoogleFonts.cairo(
-                        fontSize: 11, color: Colors.white38)),
-              ] else ...[
-                const SizedBox(height: 4),
-                OutlinedButton.icon(
-                  onPressed: _editPaymentNumber,
+                  );
+                }),
+              const SizedBox(height: 6),
+              // ── Add wallet button ───────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: kWallets.every(
+                          (w) => barber.walletNumbers.containsKey(w['key']))
+                      ? null
+                      : _addWallet,
                   icon: const Icon(Icons.add_rounded,
                       color: Colors.white70, size: 18),
-                  label: Text('تعيين رقم الدفع',
+                  label: Text('إضافة محفظة',
                       style: GoogleFonts.cairo(
                           color: Colors.white70,
                           fontWeight: FontWeight.w600)),
@@ -1198,14 +1414,10 @@ class _BarberScreenState extends State<BarberScreen> {
                     side: const BorderSide(color: Colors.white24),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text('يجب تعيين رقم الدفع حتى يتمكن العملاء من الحجز',
-                    style: GoogleFonts.cairo(
-                        fontSize: 10, color: Colors.white38),
-                    textAlign: TextAlign.center),
-              ],
+              ),
             ],
           ),
         ),
@@ -1308,6 +1520,151 @@ class _BarberScreenState extends State<BarberScreen> {
   }
 
   // ─── Barber Profile Tab ───────────────────────────────────
+
+  Widget _buildMarketingLink(String barberId) {
+    final link = 'hallaqak://barber/$barberId';
+
+    Future<void> copyLink() async {
+      await Clipboard.setData(ClipboardData(text: link));
+      if (mounted) {
+        _showMessage('تم نسخ الرابط');
+      }
+    }
+
+    Future<void> shareLink() async {
+      await Share.share(
+        'احجز مع حلاقك المفضل مباشرة عبر تطبيق حلاقك 💈\n$link',
+        subject: 'رابط حجز مباشر',
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primary,
+            AppTheme.primary.withValues(alpha: 0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primary.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.link_rounded,
+                    color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'رابط التسويق الخاص بك',
+                      style: GoogleFonts.cairo(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white),
+                    ),
+                    Text(
+                      'شاركه مع عملائك لدخول صفحتك مباشرة',
+                      style: GoogleFonts.cairo(
+                          fontSize: 11,
+                          color: Colors.white.withValues(alpha: 0.75)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Link display box
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.25)),
+            ),
+            child: Text(
+              link,
+              style: GoogleFonts.cairo(
+                  fontSize: 13,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3),
+              textDirection: TextDirection.ltr,
+              textAlign: TextAlign.left,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Action buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: copyLink,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: Text('نسخ',
+                      style: GoogleFonts.cairo(
+                          fontSize: 13, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: shareLink,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  icon: const Icon(Icons.share_rounded, size: 16),
+                  label: Text('مشاركة',
+                      style: GoogleFonts.cairo(
+                          fontSize: 13, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildProfileTab() {
     final barber = _barber;
@@ -1413,6 +1770,9 @@ class _BarberScreenState extends State<BarberScreen> {
                 ],
               ),
             ),
+          const SizedBox(height: 24),
+          // ─── Marketing Link ───────────────────────
+          if (_barber != null) _buildMarketingLink(_barber!.id),
           const SizedBox(height: 24),
           // ─── TikTok Link ──────────────────────────
           TextField(

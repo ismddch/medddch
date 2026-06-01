@@ -192,6 +192,10 @@ class SupabaseService {
         bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength: count is int ? count : int.tryParse('$count') ?? 0,
         paymentNumber: row['payment_number'],
+        walletNumbers: Map<String, String>.from(
+          ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
+              .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+        ),
       );
     }).toList();
   }
@@ -1001,6 +1005,10 @@ class SupabaseService {
           likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
           shopName:      shop?['name'],
           paymentNumber: m['payment_number'],
+          walletNumbers: Map<String, String>.from(
+            ((m['wallet_numbers'] as Map<String, dynamic>?) ?? {})
+                .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+          ),
           location:      m['location'],
         );
       }).toList();
@@ -1114,6 +1122,10 @@ class SupabaseService {
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         shopName:      shop?['name'],
         paymentNumber: row['payment_number'],
+        walletNumbers: Map<String, String>.from(
+          ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
+              .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+        ),
         location:      row['location'],
       );
     }).toList();
@@ -1162,6 +1174,10 @@ class SupabaseService {
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         paymentNumber: row['payment_number'],
+        walletNumbers: Map<String, String>.from(
+          ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
+              .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+        ),
         location:      row['location'],
       );
     }).toList();
@@ -1398,6 +1414,14 @@ class SupabaseService {
     await _client
         .from('barbers')
         .update({'payment_number': number})
+        .eq('id', barberId);
+  }
+
+  Future<void> updateBarberWalletNumbers(
+      String barberId, Map<String, String> numbers) async {
+    await _client
+        .from('barbers')
+        .update({'wallet_numbers': numbers})
         .eq('id', barberId);
   }
 

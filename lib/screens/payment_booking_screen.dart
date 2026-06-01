@@ -6,15 +6,8 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/supabase_service.dart';
+import '../utils/constants.dart';
 import '../utils/theme.dart';
-
-const List<Map<String, String>> _kWallets = [
-  {'key': 'Bankily',      'label': 'Bankily'},
-  {'key': 'Sedad',      'label': 'Sedad'},
-  {'key': 'Masrvi',      'label': 'Masrvi'},
-  {'key': 'Click',          'label': 'Click'},
-  
-];
 
 class PaymentBookingScreen extends StatefulWidget {
   final BarberModel barber;   // individual staff barber
@@ -143,6 +136,92 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
     ));
   }
 
+  Widget _buildAccountCard(String walletKey) {
+    final walletLabel = kWallets
+        .firstWhere((w) => w['key'] == walletKey,
+            orElse: () => {'key': walletKey, 'label': walletKey})['label']!;
+    final number = widget.barber.walletNumbers[walletKey] ?? '';
+    final hasNumber = number.isNotEmpty;
+
+    return Container(
+      key: ValueKey(walletKey),
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: AppTheme.primary,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'رقم حساب $walletLabel',
+            style: GoogleFonts.cairo(fontSize: 13, color: Colors.white60),
+          ),
+          const SizedBox(height: 10),
+          if (hasNumber) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    number,
+                    style: GoogleFonts.cairo(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.accent,
+                      letterSpacing: 4,
+                    ),
+                    textDirection: TextDirection.ltr,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded,
+                      color: Colors.white54, size: 22),
+                  tooltip: 'نسخ',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: number));
+                    _showSnack('تم نسخ رقم الحساب');
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'حوّل المبلغ إلى هذا الرقم عبر $walletLabel\nثم ارفع صورة الإيصال أدناه',
+              style: GoogleFonts.cairo(fontSize: 12, color: Colors.white54),
+              textAlign: TextAlign.center,
+            ),
+          ] else ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'لم يحدد الحلاق رقم $walletLabel بعد',
+                    style: GoogleFonts.cairo(
+                        fontSize: 13, color: Colors.orange),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'تواصل مع الحلاق مباشرةً للحصول على رقم الحساب',
+              style: GoogleFonts.cairo(fontSize: 11, color: Colors.white38),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isVip = widget.queueType == 'vip';
@@ -208,84 +287,40 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
               const SizedBox(height: 20),
             ],
 
-            // ── Payment number card ──────────────────────────
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: AppTheme.primary,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    'رقم الحساب للدفع',
-                    style: GoogleFonts.cairo(
-                        fontSize: 13, color: Colors.white60),
-                  ),
-                  const SizedBox(height: 8),
-                  if (widget.barber.paymentNumber?.isNotEmpty == true) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          widget.barber.paymentNumber!,
-                          style: GoogleFonts.cairo(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.accent,
-                            letterSpacing: 4,
+            // ── Wallet-specific account number card ──────────
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _selectedWallet == null
+                  ? Container(
+                      key: const ValueKey('no-wallet'),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 20, horizontal: 22),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.touch_app_rounded,
+                              color: Colors.white38, size: 20),
+                          const SizedBox(width: 10),
+                          Text(
+                            'اختر المحفظة أدناه لعرض رقم الحساب',
+                            style: GoogleFonts.cairo(
+                                fontSize: 13, color: Colors.white38),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.copy_rounded,
-                              color: Colors.white54, size: 22),
-                          tooltip: 'نسخ',
-                          onPressed: () {
-                            Clipboard.setData(ClipboardData(
-                                text: widget.barber.paymentNumber!));
-                            _showSnack('تم نسخ رقم الحساب');
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'حوّل المبلغ إلى هذا الرقم\nثم ارفع صورة الإيصال أدناه',
-                      style: GoogleFonts.cairo(
-                          fontSize: 12, color: Colors.white54),
-                      textAlign: TextAlign.center,
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            color: Colors.orange, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'لم يحدد الحلاق رقم الدفع بعد',
-                          style: GoogleFonts.cairo(
-                              fontSize: 13, color: Colors.orange),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'تواصل مع الحلاق مباشرةً للحصول على رقم الحساب',
-                      style: GoogleFonts.cairo(
-                          fontSize: 11, color: Colors.white38),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ],
-              ),
+                        ],
+                      ),
+                    )
+                  : _buildAccountCard(_selectedWallet!),
             ),
             const SizedBox(height: 28),
 
-            // ── Wallet selection ─────────────────────────────
+            // ── Wallet selection (only barber-configured wallets) ────
             Text(
               'طريقة الدفع',
               style: GoogleFonts.cairo(
@@ -294,14 +329,44 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
                   color: AppTheme.primary),
             ),
             const SizedBox(height: 10),
+            if (widget.barber.walletNumbers.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 18, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: Colors.orange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Colors.orange, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'لم يحدد الحلاق طرق الدفع بعد،\nتواصل معه مباشرةً',
+                        style: GoogleFonts.cairo(
+                            fontSize: 13, color: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
             Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: _kWallets.map((w) {
-                final selected = _selectedWallet == w['key'];
+              children: widget.barber.walletNumbers.keys.map((key) {
+                final label = kWallets.firstWhere(
+                  (w) => w['key'] == key,
+                  orElse: () => {'key': key, 'label': key},
+                )['label']!;
+                final selected = _selectedWallet == key;
                 return GestureDetector(
-                  onTap: () =>
-                      setState(() => _selectedWallet = w['key']),
+                  onTap: () => setState(() => _selectedWallet = key),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(
@@ -317,7 +382,7 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
                       ),
                     ),
                     child: Text(
-                      w['label']!,
+                      label,
                       style: GoogleFonts.cairo(
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w500,
