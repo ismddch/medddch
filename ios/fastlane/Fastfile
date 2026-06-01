@@ -5,8 +5,6 @@ platform :ios do
   lane :beta do
 
     # ── App Store Connect API key ───────────────────────────────────────────
-    # The workflow writes the raw .p8 secret to /tmp/AuthKey.p8 before this
-    # lane runs, so we reference it by path — no base64 ambiguity.
     api_key = app_store_connect_api_key(
       key_id:       ENV["APPSTORE_KEY_ID"],
       issuer_id:    ENV["APPSTORE_ISSUER_ID"],
@@ -44,10 +42,17 @@ platform :ios do
       output_name:      "Hallaqak.ipa"
     )
 
+    # ── Verify IPA exists before upload ────────────────────────────────────
+    ipa_path = File.expand_path("build/Hallaqak.ipa")
+    UI.important "IPA path: #{ipa_path}"
+    UI.user_error! "IPA not found at #{ipa_path}" unless File.exist?(ipa_path)
+    UI.success "IPA size: #{(File.size(ipa_path) / 1_048_576.0).round(1)} MB"
+
     # ── Upload to TestFlight ────────────────────────────────────────────────
     upload_to_testflight(
       api_key:                           api_key,
-      ipa:                               "build/Hallaqak.ipa",
+      app_identifier:                    ENV["APP_IDENTIFIER"],
+      ipa:                               ipa_path,
       skip_waiting_for_build_processing: true,
       submit_beta_review:                false,
       notify_external_testers:           false
