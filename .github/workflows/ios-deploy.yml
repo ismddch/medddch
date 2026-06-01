@@ -47,13 +47,27 @@ jobs:
         run: bundle exec pod install --repo-update
 
       # ── 7. Inject DEVELOPMENT_TEAM (required for SPM packages) ───────────────
+      # Python handles all pbxproj formats: DEVELOPMENT_TEAM = ""; or DEVELOPMENT_TEAM = ;
       - name: Inject DEVELOPMENT_TEAM into project
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
-          sed -i '' \
-            "s/DEVELOPMENT_TEAM = \"\"/DEVELOPMENT_TEAM = \"$TEAM_ID\"/g" \
-            ios/Runner.xcodeproj/project.pbxproj
+          python3 - <<'PYEOF'
+          import re, os
+          team_id = os.environ["TEAM_ID"]
+          pbxproj = "ios/Runner.xcodeproj/project.pbxproj"
+          with open(pbxproj) as f:
+              content = f.read()
+          patched = re.sub(
+              r'DEVELOPMENT_TEAM = [^;]*;',
+              f'DEVELOPMENT_TEAM = "{team_id}";',
+              content,
+          )
+          with open(pbxproj, "w") as f:
+              f.write(patched)
+          count = patched.count(f'DEVELOPMENT_TEAM = "{team_id}";')
+          print(f"Injected DEVELOPMENT_TEAM={team_id} in {count} place(s)")
+          PYEOF
 
       # ── 8. Flutter build (no codesign — Fastlane signs the archive) ──────────
       - name: Build Flutter iOS release
