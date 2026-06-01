@@ -41,13 +41,14 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── 6. CocoaPods (must run AFTER flutter pub get) ────────────────────────
-      - name: Install CocoaPods dependencies
-        working-directory: ios
-        run: bundle exec pod install --repo-update
+      # ── 6. Disable Swift Package Manager ─────────────────────────────────────
+      # SPM rewrites project.pbxproj during `flutter build ios` and clears any
+      # DEVELOPMENT_TEAM set beforehand, causing the build to fail even with
+      # --no-codesign. This project uses CocoaPods so SPM is not needed.
+      - name: Disable Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
 
-      # ── 7. Inject DEVELOPMENT_TEAM (required for SPM packages) ───────────────
-      # Python handles all pbxproj formats: DEVELOPMENT_TEAM = ""; or DEVELOPMENT_TEAM = ;
+      # ── 7. Inject DEVELOPMENT_TEAM (safety net for Xcode signing resolver) ───
       - name: Inject DEVELOPMENT_TEAM into project
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
@@ -69,11 +70,16 @@ jobs:
           print(f"Injected DEVELOPMENT_TEAM={team_id} in {count} place(s)")
           PYEOF
 
-      # ── 8. Flutter build (no codesign — Fastlane signs the archive) ──────────
+      # ── 8. CocoaPods ─────────────────────────────────────────────────────────
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: bundle exec pod install --repo-update
+
+      # ── 9. Flutter build (no codesign — Fastlane signs the archive) ──────────
       - name: Build Flutter iOS release
         run: flutter build ios --release --no-codesign
 
-      # ── 9. Keychain + distribution certificate ───────────────────────────────
+      # ── 10. Keychain + distribution certificate ───────────────────────────────
       - name: Create keychain and import distribution certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
@@ -94,7 +100,7 @@ jobs:
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm certificate.p12
 
-      # ── 10. Provisioning profile ──────────────────────────────────────────────
+      # ── 11. Provisioning profile ──────────────────────────────────────────────
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
@@ -111,13 +117,13 @@ jobs:
 
           rm /tmp/profile.mobileprovision /tmp/profile.plist
 
-      # ── 11. App Store Connect API key ─────────────────────────────────────────
+      # ── 12. App Store Connect API key ─────────────────────────────────────────
       - name: Write App Store Connect API key
         env:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
 
-      # ── 12. Fastlane: archive + sign + upload to TestFlight ──────────────────
+      # ── 13. Fastlane: archive + sign + upload to TestFlight ──────────────────
       - name: Deploy via Fastlane
         working-directory: ios
         env:
