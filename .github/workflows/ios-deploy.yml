@@ -46,7 +46,39 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      # ── 7. Keychain + distribution certificate ───────────────────────────────
+      # ── 7. Inject DEVELOPMENT_TEAM via xcodeproj gem ─────────────────────────
+      # Uses the same xcodeproj gem Fastlane uses — works regardless of whether
+      # the key already exists or is empty. Runs AFTER pod install so CocoaPods
+      # cannot overwrite it. Sets Manual signing to silence Xcode 26 auto-sign.
+      - name: Inject DEVELOPMENT_TEAM into Xcode project
+        working-directory: ios
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          bundle exec ruby - <<'RUBYEOF'
+          require 'xcodeproj'
+          project = Xcodeproj::Project.open('Runner.xcodeproj')
+          team_id = ENV.fetch('TEAM_ID')
+          abort "ERROR: TEAM_ID secret is empty!" if team_id.strip.empty?
+          count = 0
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['DEVELOPMENT_TEAM']   = team_id
+              config.build_settings['CODE_SIGN_STYLE']    = 'Manual'
+              count += 1
+            end
+          end
+          project.save
+          puts "Injected DEVELOPMENT_TEAM=#{team_id} into #{count} build configuration(s)"
+          RUBYEOF
+
+      # ── 8. Flutter pre-build (no codesign — Fastlane signs the archive) ──────
+      # Required so xcode_backend.sh (flutter assemble) does not run inside
+      # the Fastlane archive and fail mid-archive from scratch.
+      - name: Pre-build Flutter iOS release
+        run: flutter build ios --release --no-codesign
+
+      # ── 9. Keychain + distribution certificate ───────────────────────────────
       - name: Create keychain and import distribution certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
@@ -67,7 +99,7 @@ jobs:
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm certificate.p12
 
-      # ── 8. Provisioning profile ──────────────────────────────────────────────
+      # ── 10. Provisioning profile ──────────────────────────────────────────────
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
@@ -84,17 +116,13 @@ jobs:
 
           rm /tmp/profile.mobileprovision /tmp/profile.plist
 
-      # ── 9. App Store Connect API key ──────────────────────────────────────────
+      # ── 11. App Store Connect API key ─────────────────────────────────────────
       - name: Write App Store Connect API key
         env:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
 
-      # ── 10. Fastlane: build + sign + upload ───────────────────────────────────
-      # Fastlane's build_app triggers Flutter's engine build via Xcode build
-      # phases (xcode_backend.sh → flutter assemble), so we do NOT need a
-      # separate `flutter build ios` step. Fastlane also sets DEVELOPMENT_TEAM
-      # via update_code_signing_settings, avoiding the --no-codesign issue.
+      # ── 12. Fastlane: archive + sign + upload to TestFlight ──────────────────
       - name: Deploy via Fastlane
         working-directory: ios
         env:
