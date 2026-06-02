@@ -45,7 +45,8 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
-  disable-swift-package-manager: true
+  config:
+    enable-swift-package-manager: false
   assets:
     - assets/logo.png
 
