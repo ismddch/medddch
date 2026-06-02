@@ -41,45 +41,12 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      # ── 6. Disable Swift Package Manager ─────────────────────────────────────
-      # SPM rewrites project.pbxproj during `flutter build ios` and clears any
-      # DEVELOPMENT_TEAM set beforehand, causing the build to fail even with
-      # --no-codesign. This project uses CocoaPods so SPM is not needed.
-      - name: Disable Swift Package Manager
-        run: flutter config --no-enable-swift-package-manager
-
-      # ── 7. Inject DEVELOPMENT_TEAM (safety net for Xcode signing resolver) ───
-      - name: Inject DEVELOPMENT_TEAM into project
-        env:
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-        run: |
-          python3 - <<'PYEOF'
-          import re, os
-          team_id = os.environ["TEAM_ID"]
-          pbxproj = "ios/Runner.xcodeproj/project.pbxproj"
-          with open(pbxproj) as f:
-              content = f.read()
-          patched = re.sub(
-              r'DEVELOPMENT_TEAM = [^;]*;',
-              f'DEVELOPMENT_TEAM = "{team_id}";',
-              content,
-          )
-          with open(pbxproj, "w") as f:
-              f.write(patched)
-          count = patched.count(f'DEVELOPMENT_TEAM = "{team_id}";')
-          print(f"Injected DEVELOPMENT_TEAM={team_id} in {count} place(s)")
-          PYEOF
-
-      # ── 8. CocoaPods ─────────────────────────────────────────────────────────
+      # ── 6. CocoaPods ─────────────────────────────────────────────────────────
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      # ── 9. Flutter build (no codesign — Fastlane signs the archive) ──────────
-      - name: Build Flutter iOS release
-        run: flutter build ios --release --no-codesign
-
-      # ── 10. Keychain + distribution certificate ───────────────────────────────
+      # ── 7. Keychain + distribution certificate ───────────────────────────────
       - name: Create keychain and import distribution certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
@@ -100,7 +67,7 @@ jobs:
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm certificate.p12
 
-      # ── 11. Provisioning profile ──────────────────────────────────────────────
+      # ── 8. Provisioning profile ──────────────────────────────────────────────
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
@@ -117,13 +84,17 @@ jobs:
 
           rm /tmp/profile.mobileprovision /tmp/profile.plist
 
-      # ── 12. App Store Connect API key ─────────────────────────────────────────
+      # ── 9. App Store Connect API key ──────────────────────────────────────────
       - name: Write App Store Connect API key
         env:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
 
-      # ── 13. Fastlane: archive + sign + upload to TestFlight ──────────────────
+      # ── 10. Fastlane: build + sign + upload ───────────────────────────────────
+      # Fastlane's build_app triggers Flutter's engine build via Xcode build
+      # phases (xcode_backend.sh → flutter assemble), so we do NOT need a
+      # separate `flutter build ios` step. Fastlane also sets DEVELOPMENT_TEAM
+      # via update_code_signing_settings, avoiding the --no-codesign issue.
       - name: Deploy via Fastlane
         working-directory: ios
         env:
