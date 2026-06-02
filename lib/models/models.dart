@@ -73,6 +73,7 @@ class BarberModel {
   Map<String, String> walletNumbers;  // per-wallet account numbers, e.g. {'Bankily':'123'}
   String? location;              // city/area set by admin for filtering
   String? tiktokUrl;             // TikTok profile link
+  bool hidePaymentNumbers;       // when true customers cannot see account numbers
 
   BarberModel({
     required this.id,
@@ -91,6 +92,7 @@ class BarberModel {
     this.walletNumbers = const {},
     this.location,
     this.tiktokUrl,
+    this.hidePaymentNumbers = false,
   });
 
   factory BarberModel.fromMap(Map<String, dynamic> map) {
@@ -120,8 +122,9 @@ class BarberModel {
         ((map['wallet_numbers'] as Map<String, dynamic>?) ?? {})
             .map((k, v) => MapEntry(k, v?.toString() ?? '')),
       ),
-      location:      map['location'],
-      tiktokUrl:     map['tiktok_url'],
+      location:           map['location'],
+      tiktokUrl:          map['tiktok_url'],
+      hidePaymentNumbers: map['hide_payment_numbers'] ?? false,
     );
   }
 }

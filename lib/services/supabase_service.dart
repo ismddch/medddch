@@ -191,11 +191,12 @@ class SupabaseService {
         isNormalLocked: row['normal_locked'] ?? false,
         bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength: count is int ? count : int.tryParse('$count') ?? 0,
-        paymentNumber: row['payment_number'],
+        paymentNumber:      row['payment_number'],
         walletNumbers: Map<String, String>.from(
           ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
               .map((k, v) => MapEntry(k, v?.toString() ?? '')),
         ),
+        hidePaymentNumbers: row['hide_payment_numbers'] ?? false,
       );
     }).toList();
   }
@@ -1004,12 +1005,13 @@ class SupabaseService {
           queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
           likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
           shopName:      shop?['name'],
-          paymentNumber: m['payment_number'],
+          paymentNumber:      m['payment_number'],
           walletNumbers: Map<String, String>.from(
             ((m['wallet_numbers'] as Map<String, dynamic>?) ?? {})
                 .map((k, v) => MapEntry(k, v?.toString() ?? '')),
           ),
-          location:      m['location'],
+          location:           m['location'],
+          hidePaymentNumbers: m['hide_payment_numbers'] ?? false,
         );
       }).toList();
     } catch (_) {
@@ -1121,12 +1123,13 @@ class SupabaseService {
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
         shopName:      shop?['name'],
-        paymentNumber: row['payment_number'],
+        paymentNumber:      row['payment_number'],
         walletNumbers: Map<String, String>.from(
           ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
               .map((k, v) => MapEntry(k, v?.toString() ?? '')),
         ),
-        location:      row['location'],
+        location:           row['location'],
+        hidePaymentNumbers: row['hide_payment_numbers'] ?? false,
       );
     }).toList();
 
@@ -1173,12 +1176,13 @@ class SupabaseService {
         bookingCodeEnabled: row['booking_code_enabled'] ?? false,
         queueLength:   rawQueue is int ? rawQueue : int.tryParse('$rawQueue') ?? 0,
         likeCount:     rawLike  is int ? rawLike  : int.tryParse('$rawLike')  ?? 0,
-        paymentNumber: row['payment_number'],
+        paymentNumber:      row['payment_number'],
         walletNumbers: Map<String, String>.from(
           ((row['wallet_numbers'] as Map<String, dynamic>?) ?? {})
               .map((k, v) => MapEntry(k, v?.toString() ?? '')),
         ),
-        location:      row['location'],
+        location:           row['location'],
+        hidePaymentNumbers: row['hide_payment_numbers'] ?? false,
       );
     }).toList();
   }
@@ -1422,6 +1426,13 @@ class SupabaseService {
     await _client
         .from('barbers')
         .update({'wallet_numbers': numbers})
+        .eq('id', barberId);
+  }
+
+  Future<void> toggleHidePaymentNumbers(String barberId, bool hide) async {
+    await _client
+        .from('barbers')
+        .update({'hide_payment_numbers': hide})
         .eq('id', barberId);
   }
 
