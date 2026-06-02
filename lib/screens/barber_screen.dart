@@ -250,7 +250,11 @@ class _BarberScreenState extends State<BarberScreen> {
       setState(() => _paymentRequests = requests);
       if (requests.length > previousCount) {
         final newest = requests.last;
-        NotificationService.notifyBarberNewPayment(newest.userName ?? '');
+        NotificationService.notifyBarberNewPayment(
+          newest.userName ?? '',
+          amount:     newest.amount,
+          walletType: newest.walletType,
+        );
       }
     } catch (_) {}
   }

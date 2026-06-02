@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/constants.dart';
 import '../utils/theme.dart';
@@ -111,6 +112,10 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
         queueType:        widget.queueType,
         selectedServices: widget.selectedServices,
       );
+      // Instant confirmation — barber review notification fires separately
+      // when the realtime subscription picks up the new payment_requests row.
+      NotificationService.notifyCustomerBookingSubmitted(widget.barber.name)
+          .ignore();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       messenger.showSnackBar(SnackBar(

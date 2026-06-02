@@ -1484,6 +1484,62 @@ class SupabaseService {
         .subscribe();
   }
 
+  /// Customer-side: fires when the barber updates the status of THIS user's
+  /// payment request (approved / rejected). Filtered to avoid receiving
+  /// other users' events.
+  RealtimeChannel subscribeToUserPaymentStatus(
+      String userId, void Function(Map<String, dynamic> record) onChanged) {
+    return _client
+        .channel('user-payment-status-$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'payment_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) => onChanged(payload.newRecord),
+        )
+        .subscribe();
+  }
+
+  /// Customer-side: fires on any change to THIS user's queue entry so the
+  /// position counter updates in real-time without polling.
+  RealtimeChannel subscribeToUserQueueEntry(
+      String userId, void Function() onChanged) {
+    return _client
+        .channel('user-queue-entry-$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'queues',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) => onChanged(),
+        )
+        .subscribe();
+  }
+
+  /// Get any pending payment request for a user regardless of barber.
+  /// Used by MyBookingScreen to show pending state while waiting for approval.
+  Future<PaymentRequestModel?> getMyPendingPayment(String userId) async {
+    final res = await _client
+        .from('payment_requests')
+        .select('*, users(name, phone), barbers(name), shops(name)')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    if (res == null) return null;
+    return PaymentRequestModel.fromMap(res);
+  }
+
   // ─── MANAGER: ALL QUEUES ─────────────────────────────────
 
   Future<List<QueueEntryModel>> getAllQueueEntries() async {

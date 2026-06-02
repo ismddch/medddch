@@ -41,6 +41,7 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   String? _myQueueType;
   PaymentRequestModel? _pendingPayment;
   RealtimeChannel? _subscription;
+  RealtimeChannel? _paymentStatusChannel;
 
   @override
   void initState() {
@@ -51,7 +52,8 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
 
   @override
   void dispose() {
-    if (_subscription != null) _service.unsubscribe(_subscription!);
+    if (_subscription          != null) _service.unsubscribe(_subscription!);
+    if (_paymentStatusChannel  != null) _service.unsubscribe(_paymentStatusChannel!);
     super.dispose();
   }
 
@@ -98,17 +100,48 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
 
           // Notify customer when position drops to 3, 2, or 1 (skip initial load)
           if (oldPos != null && _myPosition != null && _myPosition! < oldPos) {
+            final barberName = _barberState?.name ?? '';
             if (_myPosition! == 3) {
-              NotificationService.notifyCustomerPositionThree();
+              NotificationService.notifyCustomerPositionThree(
+                  barberName: barberName);
             } else if (_myPosition! <= 2) {
-              NotificationService.notifyCustomerPosition(_myPosition!);
+              NotificationService.notifyCustomerPosition(_myPosition!,
+                  barberName: barberName);
             }
           }
         });
+
+        // Subscribe to this user's payment status once we know their userId.
+        // Re-subscribe only if not already watching (avoid duplicate channels).
+        _paymentStatusChannel ??= _service.subscribeToUserPaymentStatus(
+            user.id, _onPaymentStatusChanged);
       }
     } catch (e) {
       if (mounted) setState(() { _loading = false; _portfolioLoading = false; });
     }
+  }
+
+  Future<void> _onPaymentStatusChanged(
+      Map<String, dynamic> record) async {
+    if (!mounted) return;
+    final status     = record['status'] as String? ?? '';
+    final barberName = _barberState?.name ?? _pendingPayment?.barberName ?? '';
+
+    if (status == 'approved') {
+      final userId    = context.read<AuthProvider>().user?.id ?? '';
+      int   position  = 1;
+      try {
+        final entry = await _service.getUserQueueEntry(
+            userId, widget.barber.id);
+        position = (entry?['position'] as int?) ?? 1;
+      } catch (_) {}
+      NotificationService.notifyCustomerBookingApproved(barberName, position);
+    } else if (status == 'rejected') {
+      NotificationService.notifyCustomerBookingRejected(barberName);
+    }
+
+    // Reload so the pending-payment widget disappears / queue appears
+    if (mounted) _loadQueue();
   }
 
   /// Unified handler for all join/book buttons.

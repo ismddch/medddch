@@ -10,8 +10,9 @@ class NotificationService {
   static bool _initialized = false;
 
   // ── Notification channel IDs ──────────────────────────────────────────────
-  static const _chQueue   = 'queue_position';
-  static const _chPayment = 'new_customer';
+  static const _chQueue         = 'queue_position';
+  static const _chPayment       = 'new_customer';
+  static const _chBookingStatus = 'booking_status';
 
   // ── Initialize ────────────────────────────────────────────────────────────
 
@@ -137,12 +138,16 @@ class NotificationService {
 
   // ── Channel helpers ───────────────────────────────────────────────────────
 
-  static String _chIdFromData(String? type) =>
-      (type == 'new_customer' || type == 'paid_booking') ? _chPayment : _chQueue;
+  static String _chIdFromData(String? type) {
+    if (type == 'new_customer' || type == 'paid_booking') return _chPayment;
+    if (type == 'booking_status') return _chBookingStatus;
+    return _chQueue;
+  }
 
   static String _chNameFromData(String? type) {
     if (type == 'new_customer') return 'عملاء جدد';
     if (type == 'paid_booking') return 'الحجوزات المدفوعة';
+    if (type == 'booking_status') return 'حالة الحجز';
     return 'موقعك في الطابور';
   }
 
@@ -180,29 +185,83 @@ class NotificationService {
 
   // ── Public helpers (triggered by Supabase Realtime while app is open) ─────
 
-  static Future<void> notifyCustomerPosition(int position) async {
+  // ── Customer: queue position ──────────────────────────────────────────────
+
+  static Future<void> notifyCustomerPosition(int position,
+      {String barberName = ''}) async {
     final isFirst = position == 1;
+    final who = barberName.isNotEmpty ? ' عند $barberName' : '';
     await _show(
       id:          position,
-      title:       isFirst ? 'حان دورك! 🎉' : 'استعد، أنت التالي!',
+      title:       isFirst ? 'حان دورك! 🎉' : 'استعد، أنت التالي$who!',
       body:        isFirst
-          ? 'أنت الآن الأول في الطابور — توجه للكرسي الآن.'
-          : 'أنت في المرتبة الثانية، لم يتبقَّ سوى شخص واحد!',
+          ? 'أنت الآن الأول في الطابور$who — توجه للكرسي الآن.'
+          : 'أنت في المرتبة الثانية$who — لم يتبقَّ سوى شخص واحد!',
       channelId:   _chQueue,
       channelName: 'موقعك في الطابور',
     );
   }
 
-  static Future<void> notifyCustomerPositionThree() async {
+  static Future<void> notifyCustomerPositionThree(
+      {String barberName = ''}) async {
+    final who = barberName.isNotEmpty ? ' عند $barberName' : '';
     await _show(
       id:          3,
-      title:       'اقترب دورك',
+      title:       'اقترب دورك$who',
       body:        'أنت في المرتبة الثالثة — استعد قريباً!',
       channelId:   _chQueue,
       channelName: 'موقعك في الطابور',
       importance:  Importance.high,
     );
   }
+
+  // ── Customer: booking status ──────────────────────────────────────────────
+
+  /// Fired immediately when the customer submits a prepaid booking request.
+  static Future<void> notifyCustomerBookingSubmitted(
+      String barberName) async {
+    await _show(
+      id:          300,
+      title:       'تم إرسال طلب الحجز ✓',
+      body:        barberName.isNotEmpty
+          ? 'استلم $barberName طلبك — سيتم إشعارك فور المراجعة'
+          : 'تم إرسال طلب الحجز — سيتم إشعارك فور المراجعة',
+      channelId:   _chBookingStatus,
+      channelName: 'حالة الحجز',
+    );
+  }
+
+  /// Fired when the barber approves the customer's payment request.
+  static Future<void> notifyCustomerBookingApproved(
+      String barberName, int position) async {
+    final who = barberName.isNotEmpty ? barberName : 'الحلاق';
+    final posText = position == 1
+        ? 'أنت الأول في الطابور — توجه الآن!'
+        : 'أنت في المرتبة $position في الطابور';
+    await _show(
+      id:          301,
+      title:       'تم قبول حجزك! 🎉',
+      body:        'قبل $who طلبك — $posText',
+      channelId:   _chBookingStatus,
+      channelName: 'حالة الحجز',
+    );
+  }
+
+  /// Fired when the barber rejects the customer's payment request.
+  static Future<void> notifyCustomerBookingRejected(
+      String barberName) async {
+    final who = barberName.isNotEmpty ? barberName : 'الحلاق';
+    await _show(
+      id:          302,
+      title:       'تم رفض طلب الحجز',
+      body:        'رفض $who طلب حجزك — يمكنك إعادة المحاولة أو اختيار حلاق آخر',
+      channelId:   _chBookingStatus,
+      channelName: 'حالة الحجز',
+      importance:  Importance.high,
+    );
+  }
+
+  // ── Barber: new events ────────────────────────────────────────────────────
 
   static Future<void> notifyBarberNewCustomer(String barberName) async {
     await _show(
@@ -216,13 +275,22 @@ class NotificationService {
     );
   }
 
-  static Future<void> notifyBarberNewPayment(String customerName) async {
+  /// [amount] and [walletType] give the barber full context without opening the app.
+  static Future<void> notifyBarberNewPayment(String customerName,
+      {double? amount, String walletType = ''}) async {
+    final detail = [
+      if (walletType.isNotEmpty) walletType,
+      if (amount != null) '${amount.toStringAsFixed(0)} MRU',
+    ].join(' · ');
+    final body = [
+      if (customerName.isNotEmpty) '$customerName أرسل طلب حجز',
+      if (detail.isNotEmpty) detail,
+      'راجع الإيصال وأكّد الدفع',
+    ].join(' — ');
     await _show(
       id:          200,
       title:       'طلب حجز مدفوع جديد 💰',
-      body:        customerName.isNotEmpty
-          ? 'أرسل $customerName طلب حجز — راجع الإيصال وأكّد الدفع'
-          : 'وصل طلب حجز مدفوع جديد — راجع الإيصال وأكّد الدفع',
+      body:        body,
       channelId:   _chPayment,
       channelName: 'الحجوزات المدفوعة',
     );
