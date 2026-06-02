@@ -47,9 +47,9 @@ jobs:
         run: bundle exec pod install --repo-update
 
       # ── 7. Inject DEVELOPMENT_TEAM via xcodeproj gem ─────────────────────────
-      # Uses the same xcodeproj gem Fastlane uses — works regardless of whether
-      # the key already exists or is empty. Runs AFTER pod install so CocoaPods
-      # cannot overwrite it. Sets Manual signing to silence Xcode 26 auto-sign.
+      # SPM is disabled in pubspec.yaml (disable-swift-package-manager: true)
+      # so CocoaPods is the sole dependency manager. DEVELOPMENT_TEAM is still
+      # required by flutter build ios even with --no-codesign on Xcode 26.
       - name: Inject DEVELOPMENT_TEAM into Xcode project
         working-directory: ios
         env:
@@ -63,8 +63,8 @@ jobs:
           count = 0
           project.targets.each do |target|
             target.build_configurations.each do |config|
-              config.build_settings['DEVELOPMENT_TEAM']   = team_id
-              config.build_settings['CODE_SIGN_STYLE']    = 'Manual'
+              config.build_settings['DEVELOPMENT_TEAM'] = team_id
+              config.build_settings['CODE_SIGN_STYLE']  = 'Manual'
               count += 1
             end
           end
@@ -72,9 +72,7 @@ jobs:
           puts "Injected DEVELOPMENT_TEAM=#{team_id} into #{count} build configuration(s)"
           RUBYEOF
 
-      # ── 8. Flutter pre-build (no codesign — Fastlane signs the archive) ──────
-      # Required so xcode_backend.sh (flutter assemble) does not run inside
-      # the Fastlane archive and fail mid-archive from scratch.
+      # ── 8. Flutter pre-build (no codesign) ───────────────────────────────────
       - name: Pre-build Flutter iOS release
         run: flutter build ios --release --no-codesign
 
