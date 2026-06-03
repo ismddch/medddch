@@ -1283,7 +1283,7 @@ class _BarberScreenState extends State<BarberScreen> {
         // ── Per-wallet account numbers header ─────────
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
           decoration: const BoxDecoration(
             color: AppTheme.primary,
             borderRadius: BorderRadius.only(
@@ -1306,9 +1306,7 @@ class _BarberScreenState extends State<BarberScreen> {
                           color: Colors.white70)),
                 ],
               ),
-              const SizedBox(height: 12),
-              _buildBookingToggle(barber),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               // ── Active wallets ──────────────────────────
               if (barber.walletNumbers.isEmpty)
                 Padding(
@@ -1333,9 +1331,9 @@ class _BarberScreenState extends State<BarberScreen> {
                     orElse: () => {'key': key, 'label': key},
                   )['label']!;
                   return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
+                    margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 11),
+                        horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.07),
                       borderRadius: BorderRadius.circular(14),
@@ -1357,10 +1355,10 @@ class _BarberScreenState extends State<BarberScreen> {
                         Expanded(
                           child: Text(number,
                               style: GoogleFonts.cairo(
-                                  fontSize: 16,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w900,
                                   color: AppTheme.accent,
-                                  letterSpacing: 2),
+                                  letterSpacing: 1.5),
                               textDirection: TextDirection.ltr),
                         ),
                         // Copy
@@ -1522,81 +1520,6 @@ class _BarberScreenState extends State<BarberScreen> {
                 ),
         ),
       ],
-    );
-  }
-
-  // ─── Booking Toggle ──────────────────────────────────────
-
-  Widget _buildBookingToggle(BarberModel barber) {
-    final isLocked = barber.hidePaymentNumbers;
-    return GestureDetector(
-      onTap: () async {
-        if (_barber == null) return;
-        final newVal = !_barber!.hidePaymentNumbers;
-        try {
-          await _service.toggleHidePaymentNumbers(_barber!.id, newVal);
-          _showMessage(newVal
-              ? 'تم إيقاف الحجوزات الجديدة'
-              : 'تم تفعيل الحجوزات الجديدة');
-          await _loadData();
-        } catch (e) {
-          _showMessage(e.toString().replaceAll('Exception: ', ''),
-              isError: true);
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isLocked
-              ? AppTheme.danger.withValues(alpha: 0.15)
-              : Colors.green.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isLocked
-                ? AppTheme.danger.withValues(alpha: 0.5)
-                : Colors.green.withValues(alpha: 0.4),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
-              color: isLocked ? AppTheme.danger : Colors.green,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isLocked ? 'الحجوزات مغلقة' : 'الحجوزات مفتوحة',
-                    style: GoogleFonts.cairo(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: isLocked ? AppTheme.danger : Colors.green,
-                    ),
-                  ),
-                  Text(
-                    isLocked
-                        ? 'العملاء لا يرون أرقام الحسابات'
-                        : 'العملاء يرون أرقام الحسابات',
-                    style: GoogleFonts.cairo(
-                        fontSize: 11, color: Colors.white54),
-                  ),
-                ],
-              ),
-            ),
-            Switch(
-              value: !isLocked,
-              onChanged: null,
-              activeThumbColor: Colors.green,
-              inactiveThumbColor: AppTheme.danger,
-              inactiveTrackColor: AppTheme.danger.withValues(alpha: 0.3),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
