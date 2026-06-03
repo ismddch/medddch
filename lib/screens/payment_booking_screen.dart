@@ -232,8 +232,6 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
     final isVip = widget.queueType == 'vip';
     final queueColor = isVip ? const Color(0xFFFFB300) : AppTheme.accent;
 
-    final bookingLocked = widget.barber.hidePaymentNumbers;
-
     return Scaffold(
       appBar: AppBar(
         title: Text('حجز مكان — ${widget.barber.name}',
@@ -243,64 +241,7 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: bookingLocked
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: AppTheme.danger.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.lock_rounded,
-                          color: AppTheme.danger, size: 40),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'الحجز مؤقتاً غير متاح',
-                      style: GoogleFonts.cairo(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'أوقف الحلاق الحجوزات مؤقتاً.\nيرجى المحاولة لاحقاً أو التواصل معه مباشرةً.',
-                      style: GoogleFonts.cairo(
-                          fontSize: 14,
-                          color: AppTheme.textMuted,
-                          height: 1.7),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back_ios_rounded,
-                            size: 16),
-                        label: Text('رجوع',
-                            style: GoogleFonts.cairo(
-                                fontWeight: FontWeight.w700)),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppTheme.divider),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : SingleChildScrollView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
