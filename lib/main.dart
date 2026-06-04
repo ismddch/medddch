@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/auth_provider.dart';
 import 'services/notification_service.dart';
 import 'services/supabase_service.dart';
+import 'services/realtime_guard.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_screen.dart';
 import 'screens/barber_screen.dart';
@@ -52,12 +53,16 @@ void main() async {
     anonKey: supabaseAnonKey,
   );
 
-  // 3. Local notifications + FCM token
+  // 3. Realtime connection guard — registers the iOS lifecycle observer that
+  //    reconnects the WebSocket after the app returns from background.
+  RealtimeGuard.instance.init();
+
+  // 4. Local notifications + FCM token
   try {
     await NotificationService.initialize();
   } catch (_) {}
 
-  // 4. Session
+  // 5. Session
   final authProvider = AuthProvider();
   await authProvider.loadSession();
 

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/notification_service.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 
@@ -22,21 +22,29 @@ class _MyBookingScreenState extends State<MyBookingScreen> {
   bool                  _loading  = true;
   bool                  _leaving  = false;
   int?                  _prevPosition;
-
-  RealtimeChannel? _queueChannel;
-  RealtimeChannel? _paymentChannel;
+  String?               _userId;
 
   @override
   void initState() {
     super.initState();
+    _userId = context.read<AuthProvider>().user?.id;
+    if (_userId != null) _setupSubscriptions(_userId!);
     Future.microtask(_load);
   }
 
   @override
   void dispose() {
-    if (_queueChannel   != null) _service.unsubscribe(_queueChannel!);
-    if (_paymentChannel != null) _service.unsubscribe(_paymentChannel!);
+    if (_userId != null) {
+      RealtimeGuard.instance.cancel('user-queue-$_userId');
+      RealtimeGuard.instance.cancel('user-payment-status-$_userId');
+    }
     super.dispose();
+  }
+
+  void _setupSubscriptions(String userId) {
+    final guard = RealtimeGuard.instance;
+    guard.watchUserQueueEntry(userId, onChanged: () { if (mounted) _load(); });
+    guard.watchUserPaymentStatus(userId, onRecord: _onPaymentStatusChanged);
   }
 
   // ─── Data ─────────────────────────────────────────────────────
@@ -77,24 +85,9 @@ class _MyBookingScreenState extends State<MyBookingScreen> {
         _prevPosition   = newPos;
         _loading        = false;
       });
-
-      _subscribeAll(userId);
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  void _subscribeAll(String userId) {
-    // ── 1. User's own queue entry (position changes) ───────────────────────
-    _queueChannel?.unsubscribe();
-    _queueChannel = _service.subscribeToUserQueueEntry(userId, () {
-      if (mounted) _load();
-    });
-
-    // ── 2. User's payment requests (approval / rejection) ─────────────────
-    _paymentChannel?.unsubscribe();
-    _paymentChannel =
-        _service.subscribeToUserPaymentStatus(userId, _onPaymentStatusChanged);
   }
 
   Future<void> _onPaymentStatusChanged(Map<String, dynamic> record) async {

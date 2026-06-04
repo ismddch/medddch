@@ -6,10 +6,10 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
 import '../services/notification_service.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/constants.dart';
 import '../utils/theme.dart';
@@ -36,7 +36,7 @@ class _BarberScreenState extends State<BarberScreen> {
   bool _loading = true;
   bool _autoRemoveEnabled = false;
   Timer? _autoRemoveTimer;
-  RealtimeChannel? _subscription;
+  String _barberId = '';
   int _currentIndex = 0;
 
   // Profile tab state
@@ -52,7 +52,6 @@ class _BarberScreenState extends State<BarberScreen> {
 
   // Payments tab state
   List<PaymentRequestModel> _paymentRequests = [];
-  RealtimeChannel? _paymentChannel;
 
   // Menu tab state
   List<BarberMenuItemModel> _menuItems = [];
@@ -61,16 +60,18 @@ class _BarberScreenState extends State<BarberScreen> {
   @override
   void initState() {
     super.initState();
+    _barberId = context.read<AuthProvider>().user?.barberId ?? '';
+    final guard = RealtimeGuard.instance;
+    guard.watchBarberQueue(_barberId, onChanged: _loadData);
+    guard.watchBarberPayments(_barberId, onChanged: _loadPaymentRequests);
     _loadData();
-    _subscription   = _service.subscribeToQueues(_loadData);
-    final barberId  = context.read<AuthProvider>().user?.barberId ?? '';
-    _paymentChannel = _service.subscribeToPaymentsForBarber(barberId, _loadPaymentRequests);
   }
 
   @override
   void dispose() {
-    if (_subscription   != null) _service.unsubscribe(_subscription!);
-    if (_paymentChannel != null) _service.unsubscribe(_paymentChannel!);
+    final guard = RealtimeGuard.instance;
+    guard.cancel('barber-queue-$_barberId');
+    guard.cancel('barber-payments-$_barberId');
     _autoRemoveTimer?.cancel();
     _nameCtrl.dispose();
     _tiktokCtrl.dispose();

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -40,20 +41,22 @@ class _QueueDetailsScreenState extends State<QueueDetailsScreen> {
   int? _prevPosition; // tracks last known position to detect drops
   String? _myQueueType;
   PaymentRequestModel? _pendingPayment;
-  RealtimeChannel? _subscription;
   RealtimeChannel? _paymentStatusChannel;
 
   @override
   void initState() {
     super.initState();
+    RealtimeGuard.instance.watchBarberQueue(
+      widget.barber.id,
+      onChanged: () { if (mounted) _loadQueue(); },
+    );
     _loadQueue();
-    _subscription = _service.subscribeToQueues(_loadQueue);
   }
 
   @override
   void dispose() {
-    if (_subscription          != null) _service.unsubscribe(_subscription!);
-    if (_paymentStatusChannel  != null) _service.unsubscribe(_paymentStatusChannel!);
+    RealtimeGuard.instance.cancel('barber-queue-${widget.barber.id}');
+    if (_paymentStatusChannel != null) _service.unsubscribe(_paymentStatusChannel!);
     super.dispose();
   }
 

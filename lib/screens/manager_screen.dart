@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
@@ -24,21 +24,20 @@ class _ManagerScreenState extends State<ManagerScreen> {
   int _totalInQueue = 0;
   bool _loading = true;
   String? _error;
-  RealtimeChannel? _queueChannel;
-  RealtimeChannel? _paymentChannel;
 
   @override
   void initState() {
     super.initState();
+    final guard = RealtimeGuard.instance;
+    guard.watchAllQueues(key: 'manager', onChanged: _loadData);
+    guard.watchAllPayments(key: 'manager', onChanged: _loadData);
     _loadData();
-    _queueChannel   = _service.subscribeToQueues(_loadData);
-    _paymentChannel = _service.subscribeToPayments(_loadData);
   }
 
   @override
   void dispose() {
-    if (_queueChannel != null) _service.unsubscribe(_queueChannel!);
-    _paymentChannel?.unsubscribe();
+    RealtimeGuard.instance.cancel('all-queues-manager');
+    RealtimeGuard.instance.cancel('all-payments-manager');
     super.dispose();
   }
 

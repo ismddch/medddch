@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'my_booking_screen.dart';
@@ -23,20 +23,22 @@ class _AllBarbersScreenState extends State<AllBarbersScreen> {
   String? _likedBarberId;
   Set<String> _savedIds = {};
   bool _loading = true;
-  RealtimeChannel? _subscription;
   String _searchQuery = '';
   String? _selectedLocation;
 
   @override
   void initState() {
     super.initState();
+    RealtimeGuard.instance.watchAllQueues(
+      key: 'all-barbers',
+      onChanged: () { if (mounted) _load(); },
+    );
     Future.microtask(_load);
-    _subscription = _service.subscribeToQueues(() { if (mounted) _load(); });
   }
 
   @override
   void dispose() {
-    if (_subscription != null) _service.unsubscribe(_subscription!);
+    RealtimeGuard.instance.cancel('all-queues-all-barbers');
     super.dispose();
   }
 

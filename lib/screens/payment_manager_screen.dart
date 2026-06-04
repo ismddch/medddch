@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
@@ -20,18 +20,20 @@ class _PaymentManagerScreenState extends State<PaymentManagerScreen> {
   List<PaymentRequestModel> _requests = [];
   bool _loading = true;
   String? _error;
-  RealtimeChannel? _channel;
 
   @override
   void initState() {
     super.initState();
+    RealtimeGuard.instance.watchAllPayments(
+      key: 'payment-manager',
+      onChanged: _loadData,
+    );
     _loadData();
-    _channel = _service.subscribeToPayments(_loadData);
   }
 
   @override
   void dispose() {
-    _channel?.unsubscribe();
+    RealtimeGuard.instance.cancel('all-payments-payment-manager');
     super.dispose();
   }
 

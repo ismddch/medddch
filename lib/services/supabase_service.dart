@@ -251,6 +251,7 @@ class SupabaseService {
         .from('queues')
         .select('*, barbers(name, image_url, shop_id, shops(name, prepayment_enabled))')
         .eq('user_id', userId)
+        .limit(1)
         .maybeSingle();
     if (res == null) return null;
     return QueueEntryModel.fromMap(res);

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../services/auth_provider.dart';
+import '../services/realtime_guard.dart';
 import '../services/supabase_service.dart';
 import '../utils/theme.dart';
 import 'queue_details_screen.dart';
@@ -23,18 +23,20 @@ class _ShopBarbersScreenState extends State<ShopBarbersScreen> {
   ShopModel? _shop;
   String? _likedBarberId;
   bool _loading = true;
-  RealtimeChannel? _subscription;
 
   @override
   void initState() {
     super.initState();
+    RealtimeGuard.instance.watchAllQueues(
+      key: 'shop-barbers-${widget.shopId}',
+      onChanged: () { if (mounted) _loadData(); },
+    );
     Future.microtask(_loadData);
-    _subscription = _service.subscribeToQueues(() { if (mounted) _loadData(); });
   }
 
   @override
   void dispose() {
-    if (_subscription != null) _service.unsubscribe(_subscription!);
+    RealtimeGuard.instance.cancel('all-queues-shop-barbers-${widget.shopId}');
     super.dispose();
   }
 
