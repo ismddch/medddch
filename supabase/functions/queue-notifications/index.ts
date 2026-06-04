@@ -205,39 +205,54 @@ serve(async (req) => {
     // PAYMENT_REQUESTS table events
     // ════════════════════════════════════════════════════════════════════════
 
-    // ── INSERT on payment_requests → notify barber: new prepaid booking ─────
+    // ── INSERT on payment_requests ───────────────────────────────────────────
     if (type === 'INSERT' && table === 'payment_requests') {
       const barberId   = record.barber_id;
       const userId     = record.user_id;
       const walletType = record.wallet_type ?? '';
       const amount     = record.amount;
+      const status     = record.status ?? 'pending';
 
-      const token = await getBarberFcmToken(barberId);
-      if (token) {
-        const customerName = await getUserName(userId);
-        const detail = [
-          walletType,
-          amount != null ? `${Number(amount).toFixed(0)} MRU` : '',
-        ].filter(Boolean).join(' · ');
-
-        const bodyParts = [
-          customerName ? `${customerName} أرسل طلب حجز` : 'طلب حجز مدفوع جديد',
-          detail,
-          'راجع الإيصال وأكّد الدفع',
-        ].filter(Boolean);
-
-        await sendFcm(
-          token,
-          'طلب حجز مدفوع جديد 💰',
-          bodyParts.join(' — '),
-          {
-            type:       'paid_booking',
-            barber_id:  barberId,
-            user_id:    userId,
-            wallet:     walletType,
-            amount:     String(amount ?? ''),
-          },
-        );
+      if (status === 'auto_approved') {
+        // Auto-approved: customer is already in queue → send them a confirmation.
+        // The barber will be notified by the queues INSERT trigger separately.
+        const customerToken = await getFcmToken(userId);
+        if (customerToken) {
+          const barberName = await getBarberName(barberId);
+          const position   = await getUserQueuePosition(userId, barberId);
+          const posText    = position === 1
+            ? 'أنت الأول — توجه الآن!'
+            : position != null
+              ? `مرتبتك في الطابور: ${position}`
+              : 'تمت إضافتك إلى الطابور';
+          await sendFcm(
+            customerToken,
+            'تم تسجيل حجزك! 🎉',
+            `عند ${barberName || 'الحلاق'} — ${posText}`,
+            { type: 'booking_confirmed', barber_id: barberId, position: String(position ?? 1) },
+          );
+        }
+      } else {
+        // Pending: barber must manually approve → notify barber to review receipt.
+        const barberToken = await getBarberFcmToken(barberId);
+        if (barberToken) {
+          const customerName = await getUserName(userId);
+          const detail = [
+            walletType,
+            amount != null ? `${Number(amount).toFixed(0)} MRU` : '',
+          ].filter(Boolean).join(' · ');
+          const bodyParts = [
+            customerName ? `${customerName} أرسل طلب حجز` : 'طلب حجز مدفوع جديد',
+            detail,
+            'راجع الإيصال وأكّد الدفع',
+          ].filter(Boolean);
+          await sendFcm(
+            barberToken,
+            'طلب حجز مدفوع جديد 💰',
+            bodyParts.join(' — '),
+            { type: 'paid_booking', barber_id: barberId, user_id: userId },
+          );
+        }
       }
     }
 

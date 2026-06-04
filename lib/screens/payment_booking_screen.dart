@@ -39,6 +39,7 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
   Uint8List? _photoBytes;
   String? _photoExt;
   bool _submitting = false;
+  int?  _confirmedPosition; // set after auto-approved booking
 
   @override
   void initState() {
@@ -102,7 +103,7 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
         fileExt: _photoExt ?? 'jpg',
         folder: 'payments',
       );
-      await _service.createPaymentRequest(
+      final position = await _service.createPrepaidBooking(
         userId:           user.id,
         barberId:         widget.barber.id,
         shopId:           widget.shop.id,
@@ -112,11 +113,11 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
         queueType:        widget.queueType,
         selectedServices: widget.selectedServices,
       );
-      // Instant confirmation — barber review notification fires separately
-      // when the realtime subscription picks up the new payment_requests row.
-      NotificationService.notifyCustomerBookingSubmitted(widget.barber.name)
+      // Show local notification with confirmed position
+      NotificationService.notifyCustomerBookingConfirmed(
+              widget.barber.name, position)
           .ignore();
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) setState(() => _confirmedPosition = position);
     } catch (e) {
       messenger.showSnackBar(SnackBar(
         content: Text(e.toString().replaceAll('Exception: ', ''),
@@ -139,6 +140,114 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
       shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ));
+  }
+
+  // ── Success screen ────────────────────────────────────────────────────────
+  Widget _buildSuccess(Color queueColor) {
+    final pos      = _confirmedPosition!;
+    final isFirst  = pos == 1;
+    final waitMin  = pos * 45;
+    final waitText = isFirst
+        ? 'توجه الآن!'
+        : waitMin < 60
+            ? '~$waitMin دقيقة انتظار'
+            : '~${(waitMin / 60).toStringAsFixed(1)} ساعة انتظار';
+
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Icon
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_circle_rounded,
+                    color: Colors.green, size: 56),
+              ),
+              const SizedBox(height: 24),
+              Text('تم تسجيل حجزك! 🎉',
+                  style: GoogleFonts.cairo(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.primary)),
+              const SizedBox(height: 8),
+              Text('عند ${widget.barber.name}',
+                  style: GoogleFonts.cairo(
+                      fontSize: 15, color: AppTheme.textMuted)),
+              const SizedBox(height: 32),
+              // Position card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    vertical: 28, horizontal: 24),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  children: [
+                    Text('مرتبتك في الطابور',
+                        style: GoogleFonts.cairo(
+                            fontSize: 13, color: Colors.white60)),
+                    const SizedBox(height: 6),
+                    Text('$pos',
+                        style: GoogleFonts.cairo(
+                            fontSize: 80,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            height: 1)),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: queueColor.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(waitText,
+                          style: GoogleFonts.cairo(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('ستصلك إشعارات تلقائية عند اقتراب دورك',
+                  style: GoogleFonts.cairo(
+                      fontSize: 12, color: AppTheme.textMuted),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, true),
+                  icon: const Icon(Icons.check_rounded, size: 20),
+                  label: Text('حسناً',
+                      style: GoogleFonts.cairo(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildAccountCard(String walletKey) {
@@ -231,6 +340,11 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
   Widget build(BuildContext context) {
     final isVip = widget.queueType == 'vip';
     final queueColor = isVip ? const Color(0xFFFFB300) : AppTheme.accent;
+
+    // ── Success screen shown after auto-approved booking ──────────────────
+    if (_confirmedPosition != null) {
+      return _buildSuccess(queueColor);
+    }
 
     return Scaffold(
       appBar: AppBar(

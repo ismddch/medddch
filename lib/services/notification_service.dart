@@ -217,6 +217,23 @@ class NotificationService {
 
   // ── Customer: booking status ──────────────────────────────────────────────
 
+  /// Fired immediately when the customer's prepaid booking is auto-confirmed
+  /// and they are placed in the queue with a known position.
+  static Future<void> notifyCustomerBookingConfirmed(
+      String barberName, int position) async {
+    final who     = barberName.isNotEmpty ? barberName : 'الحلاق';
+    final posText = position == 1
+        ? 'أنت الأول — توجه الآن!'
+        : 'مرتبتك في الطابور: $position';
+    await _show(
+      id:          300,
+      title:       'تم تسجيل حجزك! 🎉',
+      body:        'عند $who — $posText',
+      channelId:   _chBookingStatus,
+      channelName: 'حالة الحجز',
+    );
+  }
+
   /// Fired immediately when the customer submits a prepaid booking request.
   static Future<void> notifyCustomerBookingSubmitted(
       String barberName) async {
