@@ -22,9 +22,16 @@ import 'utils/theme.dart';
 /// from outside the widget tree.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+/// Runs in a separate Dart isolate when the app is in background or killed.
+/// FCM messages that include a `notification` field are shown automatically
+/// by the OS. This handler covers data-only messages and ensures Firebase is
+/// ready for any processing needed.
 @pragma('vm:entry-point')
 Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  // For Android data-only messages: show a local notification manually.
+  // (iOS handles all background display via APNs automatically.)
+  await NotificationService.showFromFcmData(message.data);
 }
 
 void main() async {

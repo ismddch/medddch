@@ -261,6 +261,35 @@ class NotificationService {
     );
   }
 
+  // ── Called from background isolate for data-only FCM messages ───────────
+
+  /// Shows a local notification from a raw FCM data map.
+  /// Only needed on Android for data-only payloads — FCM auto-displays
+  /// messages that include a `notification` field on both platforms.
+  static Future<void> showFromFcmData(Map<String, dynamic> data) async {
+    if (!_initialized) {
+      const androidSettings =
+          AndroidInitializationSettings('@mipmap/launcher_icon');
+      const iosSettings = DarwinInitializationSettings();
+      await _plugin.initialize(
+          const InitializationSettings(
+              android: androidSettings, iOS: iosSettings));
+    }
+
+    final type  = data['type'] as String? ?? '';
+    final title = data['title'] as String?;
+    final body  = data['body']  as String?;
+    if (title == null || body == null) return;
+
+    await _show(
+      id:          data.hashCode,
+      title:       title,
+      body:        body,
+      channelId:   _chIdFromData(type),
+      channelName: _chNameFromData(type),
+    );
+  }
+
   // ── Barber: new events ────────────────────────────────────────────────────
 
   static Future<void> notifyBarberNewCustomer(String barberName) async {
