@@ -15,6 +15,7 @@ import 'screens/queue_details_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/payment_manager_screen.dart';
 import 'screens/manager_screen.dart';
+import 'utils/app_config.dart';
 import 'utils/constants.dart';
 import 'utils/theme.dart';
 
@@ -43,10 +44,12 @@ void main() async {
     FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
   } catch (_) {}
 
-  // 2. Supabase
+  // 2. Supabase — credentials injected at build time, never in source code
+  assert(supabaseUrl.isNotEmpty, 'SUPABASE_URL dart-define is missing');
+  assert(supabaseAnonKey.isNotEmpty, 'SUPABASE_ANON_KEY dart-define is missing');
   await Supabase.initialize(
-    url: 'https://xwgwzhbpbwwgbedaxqec.supabase.co',
-    anonKey: 'sb_publishable_gXo6m12b4EGEGeEIS4UaMA_F4G_F9T_',
+    url:     supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   // 3. Local notifications + FCM token

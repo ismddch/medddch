@@ -73,8 +73,16 @@ jobs:
           RUBYEOF
 
       # ── 8. Flutter pre-build (no codesign) ───────────────────────────────────
+      # Credentials are injected via --dart-define so they never appear in
+      # source code. Store SUPABASE_URL and SUPABASE_ANON_KEY as GitHub Secrets.
       - name: Pre-build Flutter iOS release
-        run: flutter build ios --release --no-codesign
+        env:
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
       # ── 9. Keychain + distribution certificate ───────────────────────────────
       - name: Create keychain and import distribution certificate

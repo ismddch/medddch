@@ -1349,7 +1349,9 @@ class SupabaseService {
   }
 
   /// Auto-approve prepaid booking: saves payment receipt AND immediately adds
-  /// the customer to the queue in one atomic flow.
+  /// the customer to the queue atomically via a Postgres RPC function.
+  /// The RPC acquires a row-level lock before calculating the next position,
+  /// preventing two simultaneous callers from receiving the same slot.
   /// Returns the queue position assigned to the customer.
   Future<int> createPrepaidBooking({
     required String userId,
@@ -1361,49 +1363,43 @@ class SupabaseService {
     String queueType = 'normal',
     List<Map<String, dynamic>>? selectedServices,
   }) async {
-    // Guard: already in a queue
+    // Guard: already in any queue (checked before the lock to fail fast)
     final inQueue = await isUserInQueue(userId);
     if (inQueue) throw Exception('أنت بالفعل في طابور');
 
-    // Calculate services total from selected items
+    // Validate amount bounds server-side to prevent negative / absurd values
+    if (amount != null && (amount <= 0 || amount > 1000000)) {
+      throw Exception('المبلغ غير صحيح');
+    }
+
     double? svcsTotal;
     if (selectedServices != null && selectedServices.isNotEmpty) {
       svcsTotal = selectedServices.fold<double>(
         0.0, (s, item) => s + ((item['price'] as num?)?.toDouble() ?? 0.0));
     }
 
-    // Get next global position for this barber
-    final posRes = await _client
-        .from('queues')
-        .select('position')
-        .eq('barber_id', barberId)
-        .order('position', ascending: false)
-        .limit(1)
-        .maybeSingle();
-    final position = posRes != null ? (posRes['position'] as int) + 1 : 1;
-
-    // Insert into queue immediately (customer is live in the queue now)
-    await _client.from('queues').insert({
-      'barber_id':  barberId,
-      'user_id':    userId,
-      'position':   position,
-      'queue_type': queueType,
+    // Atomic queue insert via DB function (prevents race condition on position)
+    final rpcResult = await _client.rpc('join_queue_atomic', params: {
+      'p_barber_id':         barberId,
+      'p_user_id':           userId,
+      'p_queue_type':        queueType,
       if (selectedServices != null && selectedServices.isNotEmpty)
-        'selected_services': selectedServices,
+        'p_selected_services': selectedServices,
       if (svcsTotal != null && svcsTotal > 0)
-        'services_total': svcsTotal,
+        'p_services_total':  svcsTotal,
     });
+    final position = (rpcResult as int?) ?? 1;
 
-    // Save payment record with auto_approved status (barber sees receipt in tab)
+    // Save payment receipt with auto_approved status for barber reference
     await _client.from('payment_requests').insert({
-      'user_id':      userId,
-      'barber_id':    barberId,
-      'shop_id':      shopId,
-      'wallet_type':  walletType,
-      'photo_url':    photoUrl,
-      'amount':       amount,
-      'queue_type':   queueType,
-      'status':       'auto_approved',
+      'user_id':     userId,
+      'barber_id':   barberId,
+      'shop_id':     shopId,
+      'wallet_type': walletType,
+      'photo_url':   photoUrl,
+      'amount':      amount,
+      'queue_type':  queueType,
+      'status':      'auto_approved',
       if (selectedServices != null && selectedServices.isNotEmpty)
         'selected_services': selectedServices,
     });

@@ -90,8 +90,17 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
       return;
     }
     final amount = double.tryParse(amountText);
-    if (amount == null || amount <= 0) {
-      _showSnack('المبلغ غير صحيح', isError: true);
+    if (amount == null ||
+        amount < AppConstants.minPaymentAmount ||
+        amount > AppConstants.maxPaymentAmount) {
+      _showSnack('أدخل مبلغاً صحيحاً', isError: true);
+      return;
+    }
+
+    // Whitelist check: wallet key must be in the known list
+    final validWalletKeys = kWallets.map((w) => w['key']!).toSet();
+    if (!validWalletKeys.contains(_selectedWallet)) {
+      _showSnack('طريقة الدفع غير صالحة', isError: true);
       return;
     }
 
@@ -113,15 +122,14 @@ class _PaymentBookingScreenState extends State<PaymentBookingScreen> {
         queueType:        widget.queueType,
         selectedServices: widget.selectedServices,
       );
-      // Show local notification with confirmed position
       NotificationService.notifyCustomerBookingConfirmed(
               widget.barber.name, position)
           .ignore();
       if (mounted) setState(() => _confirmedPosition = position);
     } catch (e) {
       messenger.showSnackBar(SnackBar(
-        content: Text(e.toString().replaceAll('Exception: ', ''),
-            style: GoogleFonts.cairo()),
+        // Use safeError to strip internal stack details from user-visible text
+        content: Text(AppConstants.safeError(e), style: GoogleFonts.cairo()),
         backgroundColor: AppTheme.danger,
         behavior: SnackBarBehavior.floating,
         shape:
