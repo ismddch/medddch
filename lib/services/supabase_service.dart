@@ -1600,6 +1600,48 @@ class SupabaseService {
     return PaymentRequestModel.fromMap(res);
   }
 
+  /// Create a pending payment request that requires barber approval.
+  /// Does NOT add the customer to the queue — the barber calls approvePayment()
+  /// to assign a position once they verify the payment proof.
+  Future<void> submitPendingPaymentRequest({
+    required String userId,
+    required String barberId,
+    required String shopId,
+    required String walletType,
+    required String photoUrl,
+    double? amount,
+    String queueType = 'normal',
+    List<Map<String, dynamic>>? selectedServices,
+  }) async {
+    final inQueue = await isUserInQueue(userId);
+    if (inQueue) throw Exception('أنت بالفعل في طابور');
+
+    final existing = await _client
+        .from('payment_requests')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .maybeSingle();
+    if (existing != null) throw Exception('لديك طلب حجز قيد المراجعة بالفعل');
+
+    if (amount != null && (amount <= 0 || amount > 1000000)) {
+      throw Exception('المبلغ غير صحيح');
+    }
+
+    await _client.from('payment_requests').insert({
+      'user_id':     userId,
+      'barber_id':   barberId,
+      'shop_id':     shopId,
+      'wallet_type': walletType,
+      'photo_url':   photoUrl,
+      'amount':      amount,
+      'queue_type':  queueType,
+      'status':      'pending',
+      if (selectedServices != null && selectedServices.isNotEmpty)
+        'selected_services': selectedServices,
+    });
+  }
+
   // ─── MANAGER: ALL QUEUES ─────────────────────────────────
 
   Future<List<QueueEntryModel>> getAllQueueEntries() async {
