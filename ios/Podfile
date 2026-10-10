@@ -1,5 +1,5 @@
 # Minimum iOS version must match the Xcode project deployment target.
-platform :ios, '13.0'
+platform :ios, '14.0'
 
 # Disable CocoaPods telemetry to keep CI builds fast.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
