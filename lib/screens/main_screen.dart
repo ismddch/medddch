@@ -8,6 +8,7 @@ import 'all_barbers_screen.dart';
 import 'my_barber_screen.dart';
 import 'my_booking_screen.dart';
 import 'products_screen.dart';
+import 'shop_barbers_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -23,10 +24,10 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
   final _screens = const [
-    AllBarbersScreen(),
+    ShopsListScreen(),
     MyBarberScreen(),
     MyBookingScreen(),
-    ShopsListScreen(),
+    AllBarbersScreen(),
     ProductsScreen(),
   ];
 
