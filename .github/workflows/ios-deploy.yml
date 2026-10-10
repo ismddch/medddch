@@ -44,8 +44,9 @@ jobs:
       # ── 6. CocoaPods ─────────────────────────────────────────────────────────
       - name: Install CocoaPods dependencies
         working-directory: ios
-        run: bundle exec pod install --repo-update
-
+        run: |
+          rm -f Podfile.lock
+          bundle exec pod install --repo-update
       # ── 7. Inject DEVELOPMENT_TEAM via xcodeproj gem ─────────────────────────
       - name: Inject DEVELOPMENT_TEAM into Xcode project
         working-directory: ios
