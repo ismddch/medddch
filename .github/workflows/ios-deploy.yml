@@ -44,10 +44,12 @@ jobs:
       # ── 6. CocoaPods ─────────────────────────────────────────────────────────
       - name: Install CocoaPods dependencies
         working-directory: ios
-        run: |
-          rm -f Podfile.lock
-          bundle exec pod install --repo-update
+        run: bundle exec pod install --repo-update
+
       # ── 7. Inject DEVELOPMENT_TEAM via xcodeproj gem ─────────────────────────
+      # SPM is disabled in pubspec.yaml (disable-swift-package-manager: true)
+      # so CocoaPods is the sole dependency manager. DEVELOPMENT_TEAM is still
+      # required by flutter build ios even with --no-codesign on Xcode 26.
       - name: Inject DEVELOPMENT_TEAM into Xcode project
         working-directory: ios
         env:
@@ -71,6 +73,8 @@ jobs:
           RUBYEOF
 
       # ── 8. Flutter pre-build (no codesign) ───────────────────────────────────
+      # Credentials are injected via --dart-define so they never appear in
+      # source code. Store SUPABASE_URL and SUPABASE_ANON_KEY as GitHub Secrets.
       - name: Pre-build Flutter iOS release
         env:
           SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
