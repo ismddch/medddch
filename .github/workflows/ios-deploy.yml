@@ -23,10 +23,12 @@ jobs:
           xcode-version: 'latest-stable'
 
       # ── 3. Flutter ───────────────────────────────────────────────────────────
+      # Conseil : fixe la même version qu'en local (flutter --version)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # flutter-version: '3.x.x'
           cache: true
 
       # ── 4. Ruby + Gems ───────────────────────────────────────────────────────
@@ -37,105 +39,35 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
+      # ── 4b. Forcer la cible de déploiement iOS (corrige l'erreur CocoaPods) ──
+      - name: Force iOS deployment target to 15.0
+        working-directory: ios
+        run: |
+          # Podfile : remplace ou ajoute la ligne platform
+          if grep -qE "^[[:space:]]*#?[[:space:]]*platform :ios" Podfile; then
+            sed -i '' -E "s/^[[:space:]]*#?[[:space:]]*platform :ios.*/platform :ios, '15.0'/" Podfile
+          else
+            { echo "platform :ios, '15.0'"; cat Podfile; } > Podfile.new
+            mv Podfile.new Podfile
+          fi
+
+          # Projet Xcode
+          sed -i '' -E "s/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g" \
+            Runner.xcodeproj/project.pbxproj
+
+          # AppFrameworkInfo.plist
+          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" Flutter/AppFrameworkInfo.plist || true
+
+          # Lockfile potentiellement généré avec une ancienne cible
+          rm -f Podfile.lock
+
+          grep -n "platform :ios" Podfile
+
       # ── 5. Dart packages ─────────────────────────────────────────────────────
       - name: Install Flutter dependencies
-        run: flutter pub get
+        run: |
+          flutter pub get
+          flutter precache --ios
 
       # ── 6. CocoaPods ─────────────────────────────────────────────────────────
-      - name: Install CocoaPods dependencies
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      # ── 7. Inject DEVELOPMENT_TEAM via xcodeproj gem ─────────────────────────
-      # SPM is disabled in pubspec.yaml (disable-swift-package-manager: true)
-      # so CocoaPods is the sole dependency manager. DEVELOPMENT_TEAM is still
-      # required by flutter build ios even with --no-codesign on Xcode 26.
-      - name: Inject DEVELOPMENT_TEAM into Xcode project
-        working-directory: ios
-        env:
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-        run: |
-          bundle exec ruby - <<'RUBYEOF'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Runner.xcodeproj')
-          team_id = ENV.fetch('TEAM_ID')
-          abort "ERROR: TEAM_ID secret is empty!" if team_id.strip.empty?
-          count = 0
-          project.targets.each do |target|
-            target.build_configurations.each do |config|
-              config.build_settings['DEVELOPMENT_TEAM'] = team_id
-              config.build_settings['CODE_SIGN_STYLE']  = 'Manual'
-              count += 1
-            end
-          end
-          project.save
-          puts "Injected DEVELOPMENT_TEAM=#{team_id} into #{count} build configuration(s)"
-          RUBYEOF
-
-      # ── 8. Flutter pre-build (no codesign) ───────────────────────────────────
-      # Credentials are injected via --dart-define so they never appear in
-      # source code. Store SUPABASE_URL and SUPABASE_ANON_KEY as GitHub Secrets.
-      - name: Pre-build Flutter iOS release
-        env:
-          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: |
-          flutter build ios --release --no-codesign \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
-
-      # ── 9. Keychain + distribution certificate ───────────────────────────────
-      - name: Create keychain and import distribution certificate
-        env:
-          CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_P12_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-
-          echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
-          security import certificate.p12 \
-            -k build.keychain \
-            -P "$CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign
-          security set-key-partition-list \
-            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          rm certificate.p12
-
-      # ── 10. Provisioning profile ──────────────────────────────────────────────
-      - name: Install provisioning profile
-        env:
-          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode \
-            > /tmp/profile.mobileprovision
-
-          security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
-          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /tmp/profile.plist)
-
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp /tmp/profile.mobileprovision \
-            ~/Library/MobileDevice/Provisioning\ Profiles/${UUID}.mobileprovision
-
-          rm /tmp/profile.mobileprovision /tmp/profile.plist
-
-      # ── 11. App Store Connect API key ─────────────────────────────────────────
-      - name: Write App Store Connect API key
-        env:
-          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-        run: printf '%s' "$APPSTORE_PRIVATE_KEY" > /tmp/AuthKey.p8
-
-      # ── 12. Fastlane: archive + sign + upload to TestFlight ──────────────────
-      - name: Deploy via Fastlane
-        working-directory: ios
-        env:
-          APPSTORE_KEY_ID:           ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID:        ${{ secrets.APPSTORE_ISSUER_ID }}
-          APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
-          APPLE_ID_EMAIL:            ${{ secrets.APPLE_ID_EMAIL }}
-          TEAM_ID:                   ${{ secrets.TEAM_ID }}
-          PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
-        run: bundle exec fastlane beta
+      - name: Install CocoaPods
